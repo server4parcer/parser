@@ -1,0 +1,16 @@
+[
+  ".",
+  "yclients-parser",
+  "yclients-parser/.pytest_cache",
+  "yclients-parser/.pytest_cache/v/cache",
+  "yclients-parser/config",
+  "yclients-parser/scripts",
+  "yclients-parser/src",
+  "yclients-parser/src/api",
+  "yclients-parser/src/browser",
+  "yclients-parser/src/database",
+  "yclients-parser/src/export",
+  "yclients-parser/src/parser",
+  "yclients-parser/src/scheduler",
+  "yclients-parser/tests"
+]

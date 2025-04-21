@@ -1,0 +1,130 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+# Configuration files
+config/api_keys.txt
+.env*
+.env
+.env.single
+.env.multi
+
+# Database files
+database/*.db
+relationship_advisor.db
+
+# Virtual environment
+venv/
+
+# macOS system files
+.DS_Store
+
+# Python compiled files
+*.pyc
+__pycache__/
+
+# MyPy cache
+.mypy_cache
+
+# IDE settings
+.vscode/
+.idea/
+
+# Log files
+*.log
+
+# Test coverage reports
+.coverage
+htmlcov/
+
+# Build files
+*.egg-info/
+dist/
+build/
+
+# Modal configuration files
+.modal/
+
+# Pytest cache and coverage
+.pytest_cache/
+.cache/
+
+# Behave (BDD) configuration
+*.behave
+
+
+myenv/
+backups/
+reports/
+tasks.db
+
+concatenated_output.txt
+tree.txt
+concatenated_output.txt
+config.json
+
+tests/.mypy_cache/
+
+# Configuration files
+config/api_keys.txt
+.env*
+.env
+.env.single
+.env.multi
+
+# Database files
+database/*.db
+relationship_advisor.db
+
+# Virtual environment
+venv/
+env/
+
+
+# macOS system files
+.DS_Store
+
+# Python compiled files
+*.pyc
+__pycache__/
+
+# MyPy cache
+.mypy_cache
+
+# IDE settings
+.vscode/
+.idea/
+
+# Log files
+*.log
+
+# Test coverage reports
+.coverage
+htmlcov/
+
+# Build files
+*.egg-info/
+dist/
+build/
+
+# Modal configuration files
+.modal/
+
+# Pytest cache and coverage
+.pytest_cache/
+.cache/
+
+# Behave (BDD) configuration
+*.behave
+
+
+myenv/
+backups/
+reports/
+tasks.db
+
+concatenated_output.txt
+tree.txt
+

@@ -1,0 +1,44 @@
+# .selectignore
+.git/
+# Python compiled files
+*.pyc
+.*
+__pycache__/
+*.ini
+# select_files.py
+env.py
+concatenaed_output.txt
+tree.txt
+# folder_structure_generator.py
+Makefile
+requirements.txt
+
+# Virtual environment
+venv/
+myenv/
+alembic/
+app/
+migrations/
+initial_data/
+yclients-parser/myenv/
+yclients-parser/venv/
+
+
+*.sh
+*.mako
+*.rdb
+alembic_multi/
+# macOS system files
+.DS_Store
+
+# Log files
+*.log
+
+# Add any additional patterns specific to selection
+
+reports/
+backups/
+tasks.db
+
+reports/
+llmcodeupdater.egg-info/

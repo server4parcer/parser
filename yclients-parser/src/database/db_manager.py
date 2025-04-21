@@ -11,8 +11,17 @@ from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 
 import asyncpg
-from postgrest.types import Count
 from supabase import create_client, Client
+try:
+    from postgrest.types import CountMethod as Count
+except ImportError:
+    # Define a simple Count class as a fallback
+    class Count:
+        def __init__(self, column="*"):
+            self.column = column
+        
+        def __str__(self):
+            return f"count({self.column})"
 
 from config.settings import (
     SUPABASE_URL,
