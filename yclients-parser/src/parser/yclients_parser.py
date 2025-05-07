@@ -13,6 +13,7 @@ from src.browser.browser_manager import BrowserManager
 from src.browser.proxy_manager import ProxyManager
 from src.database.db_manager import DatabaseManager
 from src.parser.data_extractor import DataExtractor
+from src.parser.enhanced_data_extractor import EnhancedDataExtractor
 from src.parser.selectors import SELECTORS
 from config.settings import PARSE_INTERVAL, MAX_RETRIES, TIMEOUT, USER_AGENTS, PAGE_LOAD_TIMEOUT
 
@@ -38,7 +39,8 @@ class YClientsParser:
         self.db_manager = db_manager
         self.browser_manager = BrowserManager()
         self.proxy_manager = ProxyManager()
-        self.data_extractor = DataExtractor()
+        # Используем расширенный экстрактор данных для бизнес-аналитики
+        self.data_extractor = EnhancedDataExtractor(self.browser_manager)
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -219,24 +221,22 @@ class YClientsParser:
             
             time_slots = []
             for slot_element in slot_elements:
-                time_text = await slot_element.text_content()
-                price_element = await slot_element.query_selector(SELECTORS["slot_price"])
-                provider_element = await slot_element.query_selector(SELECTORS["slot_provider"])
+                # Определяем, является ли дата выходным днем
+                date_obj = datetime.strptime(date, "%Y-%m-%d")
+                is_weekend = date_obj.weekday() >= 5  # 5 и 6 - суббота и воскресенье
                 
-                price = await price_element.text_content() if price_element else "Цена не указана"
-                provider = await provider_element.text_content() if provider_element else "Провайдер не указан"
+                # Используем расширенный экстрактор данных для получения всех полей с бизнес-аналитикой
+                slot_data = await self.data_extractor.extract_enhanced_booking_data_from_slot(
+                    slot_element,
+                    date,
+                    is_weekend
+                )
                 
-                # Получаем номер места, если доступен
-                seat_element = await slot_element.query_selector(SELECTORS["slot_seat"])
-                seat_number = await seat_element.text_content() if seat_element else "Не указано"
-                
-                time_slots.append({
-                    "time": time_text.strip(),
-                    "price": price.strip(),
-                    "provider": provider.strip(),
-                    "seat_number": seat_number.strip(),
-                    "date": date
-                })
+                # Добавляем дату, если её нет
+                if "date" not in slot_data:
+                    slot_data["date"] = date
+                    
+                time_slots.append(slot_data)
             
             logger.info(f"Найдено {len(time_slots)} временных слотов для даты {date}")
             return time_slots

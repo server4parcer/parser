@@ -207,7 +207,7 @@ class DatabaseManager:
     
     async def save_booking_data(self, url: str, booking_data: List[Dict[str, Any]]) -> Tuple[int, int]:
         """
-        Сохранение данных бронирования в базу данных.
+        Сохранение данных бронирования в базу данных с поддержкой бизнес-аналитики.
         
         Args:
             url: URL страницы
@@ -233,7 +233,7 @@ class DatabaseManager:
                     # Получаем все существующие записи для этого URL с датой и временем
                     existing_bookings = await conn.fetch(
                         f"""
-                        SELECT date, time, seat_number, id 
+                        SELECT date, time, seat_number, id, price
                         FROM {BOOKING_TABLE}
                         WHERE url_id = $1
                         """,
@@ -242,7 +242,10 @@ class DatabaseManager:
                     
                     # Создаем словарь для быстрого поиска существующих записей
                     existing_dict = {
-                        (row['date'].isoformat(), row['time'].isoformat(), row['seat_number']): row['id']
+                        (row['date'].isoformat(), row['time'].isoformat(), row['seat_number']): {
+                            'id': row['id'],
+                            'price': row['price']
+                        }
                         for row in existing_bookings
                     }
                     
@@ -254,6 +257,15 @@ class DatabaseManager:
                         price = data.get('price')
                         provider = data.get('provider')
                         seat_number = data.get('seat_number')
+                        
+                        # Получаем новые поля для бизнес-аналитики
+                        location_name = data.get('location_name')
+                        court_type = data.get('court_type')
+                        time_category = data.get('time_category')
+                        duration = data.get('duration')
+                        review_count = data.get('review_count')
+                        prepayment_required = data.get('prepayment_required', False)
+                        raw_venue_data = data.get('raw_venue_data')
                         
                         # Пропускаем записи без основных полей
                         if not date_str or not time_str:
@@ -268,33 +280,67 @@ class DatabaseManager:
                             # Подготавливаем время
                             time_obj = await self._parse_time(time_str)
                             
-                            # Дополнительные данные
+                            # Дополнительные данные (все, что не входит в основные поля)
                             extra_data = {k: v for k, v in data.items() 
-                                        if k not in ['date', 'time', 'price', 'provider', 'seat_number']}
+                                        if k not in [
+                                            'date', 'time', 'price', 'provider', 'seat_number',
+                                            'location_name', 'court_type', 'time_category', 
+                                            'duration', 'review_count', 'prepayment_required',
+                                            'raw_venue_data'
+                                        ]}
                             
                             # Проверяем, существует ли уже такая запись
                             key = (date_obj.isoformat(), time_obj.isoformat(), seat_number)
                             
                             if key in existing_dict:
+                                # Получаем ID существующей записи
+                                booking_id = existing_dict[key]['id']
+                                old_price = existing_dict[key]['price']
+                                
+                                # Если цена изменилась, записываем в историю цен
+                                if price and old_price and price != old_price:
+                                    await conn.execute(
+                                        """
+                                        INSERT INTO price_history (booking_data_id, price)
+                                        VALUES ($1, $2)
+                                        ON CONFLICT (booking_data_id, recorded_at) DO NOTHING
+                                        """,
+                                        booking_id, old_price
+                                    )
+                                
                                 # Обновляем существующую запись
                                 await conn.execute(
                                     f"""
                                     UPDATE {BOOKING_TABLE}
-                                    SET price = $1, provider = $2, extra_data = $3, updated_at = CURRENT_TIMESTAMP
-                                    WHERE id = $4
+                                    SET price = $1, provider = $2, location_name = $3, 
+                                        court_type = $4, time_category = $5, duration = $6,
+                                        review_count = $7, prepayment_required = $8,
+                                        raw_venue_data = $9, extra_data = $10,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE id = $11
                                     """,
-                                    price, provider, json.dumps(extra_data) if extra_data else None, existing_dict[key]
+                                    price, provider, location_name, court_type, time_category,
+                                    duration, review_count, prepayment_required,
+                                    json.dumps(raw_venue_data) if raw_venue_data else None,
+                                    json.dumps(extra_data) if extra_data else None,
+                                    booking_id
                                 )
                                 updated_count += 1
                             else:
                                 # Добавляем новую запись
-                                await conn.execute(
+                                booking_id = await conn.fetchval(
                                     f"""
                                     INSERT INTO {BOOKING_TABLE}
-                                    (url_id, date, time, price, provider, seat_number, extra_data)
-                                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                                    (url_id, date, time, price, provider, seat_number, location_name,
+                                     court_type, time_category, duration, review_count, 
+                                     prepayment_required, raw_venue_data, extra_data)
+                                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                                    RETURNING id
                                     """,
                                     url_id, date_obj, time_obj, price, provider, seat_number,
+                                    location_name, court_type, time_category, duration,
+                                    review_count, prepayment_required,
+                                    json.dumps(raw_venue_data) if raw_venue_data else None,
                                     json.dumps(extra_data) if extra_data else None
                                 )
                                 new_count += 1
@@ -309,14 +355,25 @@ class DatabaseManager:
             logger.error(f"Ошибка при сохранении данных бронирования для URL {url}: {str(e)}")
             raise
     
-    async def get_booking_data(self, url: str = None, date_from: str = None, date_to: str = None) -> List[Dict[str, Any]]:
+    async def get_booking_data(
+        self, 
+        url: str = None, 
+        date_from: str = None, 
+        date_to: str = None,
+        location_name: str = None,
+        court_type: str = None,
+        time_category: str = None
+    ) -> List[Dict[str, Any]]:
         """
-        Получение данных бронирования из базы данных.
+        Получение данных бронирования из базы данных с поддержкой новых фильтров.
         
         Args:
             url: URL страницы (опционально)
             date_from: Начальная дата в формате YYYY-MM-DD (опционально)
             date_to: Конечная дата в формате YYYY-MM-DD (опционально)
+            location_name: Название локации (опционально)
+            court_type: Тип корта (опционально)
+            time_category: Категория времени (опционально)
             
         Returns:
             List[Dict[str, Any]]: Список словарей с данными бронирования
@@ -324,6 +381,8 @@ class DatabaseManager:
         try:
             query = f"""
                 SELECT b.id, u.url, b.date, b.time, b.price, b.provider, b.seat_number, 
+                       b.location_name, b.court_type, b.time_category, b.duration, 
+                       b.review_count, b.prepayment_required, b.raw_venue_data,
                        b.extra_data, b.created_at, b.updated_at
                 FROM {BOOKING_TABLE} b
                 JOIN {URL_TABLE} u ON b.url_id = u.id
@@ -346,6 +405,19 @@ class DatabaseManager:
                 query += f" AND b.date <= ${len(params) + 1}"
                 params.append(await self._parse_date(date_to))
             
+            # Добавляем новые фильтры
+            if location_name:
+                query += f" AND b.location_name = ${len(params) + 1}"
+                params.append(location_name)
+            
+            if court_type:
+                query += f" AND b.court_type = ${len(params) + 1}"
+                params.append(court_type)
+            
+            if time_category:
+                query += f" AND b.time_category = ${len(params) + 1}"
+                params.append(time_category)
+            
             # Сортировка
             query += " ORDER BY b.date, b.time"
             
@@ -364,9 +436,19 @@ class DatabaseManager:
                     'price': row['price'],
                     'provider': row['provider'],
                     'seat_number': row['seat_number'],
+                    'location_name': row['location_name'],
+                    'court_type': row['court_type'],
+                    'time_category': row['time_category'],
+                    'duration': row['duration'],
+                    'review_count': row['review_count'],
+                    'prepayment_required': row['prepayment_required'],
                     'created_at': row['created_at'].isoformat() if row['created_at'] else None,
                     'updated_at': row['updated_at'].isoformat() if row['updated_at'] else None
                 }
+                
+                # Добавляем сырые данные о площадке, если они есть
+                if row['raw_venue_data']:
+                    data['raw_venue_data'] = json.loads(row['raw_venue_data'])
                 
                 # Добавляем дополнительные данные, если они есть
                 if row['extra_data']:
@@ -382,22 +464,41 @@ class DatabaseManager:
             logger.error(f"Ошибка при получении данных бронирования: {str(e)}")
             return []
     
-    async def export_to_csv(self, filepath: str = None, url: str = None, date_from: str = None, date_to: str = None) -> str:
+    async def export_to_csv(
+        self, 
+        filepath: str = None, 
+        url: str = None, 
+        date_from: str = None, 
+        date_to: str = None,
+        location_name: str = None,
+        court_type: str = None,
+        time_category: str = None
+    ) -> str:
         """
-        Экспорт данных бронирования в CSV файл.
+        Экспорт данных бронирования в CSV файл с поддержкой новых фильтров.
         
         Args:
             filepath: Путь к файлу для сохранения (опционально)
             url: URL страницы (опционально)
             date_from: Начальная дата в формате YYYY-MM-DD (опционально)
             date_to: Конечная дата в формате YYYY-MM-DD (опционально)
+            location_name: Название локации (опционально)
+            court_type: Тип корта (опционально)
+            time_category: Категория времени (опционально)
             
         Returns:
             str: Путь к созданному файлу
         """
         try:
             # Получаем данные
-            data = await self.get_booking_data(url, date_from, date_to)
+            data = await self.get_booking_data(
+                url=url, 
+                date_from=date_from, 
+                date_to=date_to,
+                location_name=location_name,
+                court_type=court_type,
+                time_category=time_category
+            )
             
             if not data:
                 logger.warning("Нет данных для экспорта в CSV")
@@ -409,12 +510,19 @@ class DatabaseManager:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filepath = os.path.join(EXPORT_PATH, f"booking_data_{timestamp}.csv")
             
-            # Определяем все заголовки
-            headers = set(['id', 'url', 'date', 'time', 'price', 'provider', 'seat_number', 
-                         'created_at', 'updated_at'])
+            # Определяем основные и новые заголовки бизнес-аналитики
+            headers = set([
+                'id', 'url', 'date', 'time', 'price', 'provider', 'seat_number', 
+                'location_name', 'court_type', 'time_category', 'duration', 
+                'review_count', 'prepayment_required', 'created_at', 'updated_at'
+            ])
             
+            # Добавляем все остальные ключи из данных
             for item in data:
                 headers.update(item.keys())
+            
+            # Исключаем сырые данные из CSV, т.к. они могут быть большими и сложными
+            headers.discard('raw_venue_data')
             
             headers = sorted(list(headers))
             
@@ -423,7 +531,15 @@ class DatabaseManager:
             with open(filepath, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=headers)
                 writer.writeheader()
-                writer.writerows(data)
+                
+                # Подготавливаем данные для записи
+                clean_data = []
+                for item in data:
+                    # Создаем копию элемента без raw_venue_data
+                    clean_item = {k: v for k, v in item.items() if k != 'raw_venue_data'}
+                    clean_data.append(clean_item)
+                
+                writer.writerows(clean_data)
             
             logger.info(f"Данные экспортированы в CSV: {filepath}")
             return filepath
@@ -432,22 +548,43 @@ class DatabaseManager:
             logger.error(f"Ошибка при экспорте данных в CSV: {str(e)}")
             return ""
     
-    async def export_to_json(self, filepath: str = None, url: str = None, date_from: str = None, date_to: str = None) -> str:
+    async def export_to_json(
+        self, 
+        filepath: str = None, 
+        url: str = None, 
+        date_from: str = None, 
+        date_to: str = None,
+        location_name: str = None,
+        court_type: str = None,
+        time_category: str = None,
+        include_raw_data: bool = False
+    ) -> str:
         """
-        Экспорт данных бронирования в JSON файл.
+        Экспорт данных бронирования в JSON файл с поддержкой новых фильтров.
         
         Args:
             filepath: Путь к файлу для сохранения (опционально)
             url: URL страницы (опционально)
             date_from: Начальная дата в формате YYYY-MM-DD (опционально)
             date_to: Конечная дата в формате YYYY-MM-DD (опционально)
+            location_name: Название локации (опционально)
+            court_type: Тип корта (опционально)
+            time_category: Категория времени (опционально)
+            include_raw_data: Включить сырые данные о площадке в экспорт (по умолчанию False)
             
         Returns:
             str: Путь к созданному файлу
         """
         try:
             # Получаем данные
-            data = await self.get_booking_data(url, date_from, date_to)
+            data = await self.get_booking_data(
+                url=url, 
+                date_from=date_from, 
+                date_to=date_to,
+                location_name=location_name,
+                court_type=court_type,
+                time_category=time_category
+            )
             
             if not data:
                 logger.warning("Нет данных для экспорта в JSON")
@@ -458,6 +595,12 @@ class DatabaseManager:
                 os.makedirs(EXPORT_PATH, exist_ok=True)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filepath = os.path.join(EXPORT_PATH, f"booking_data_{timestamp}.json")
+            
+            # Если не нужно включать сырые данные, удаляем их
+            if not include_raw_data:
+                for item in data:
+                    if 'raw_venue_data' in item:
+                        del item['raw_venue_data']
             
             # Экспортируем данные в JSON
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -541,6 +684,39 @@ class DatabaseManager:
                     """
                 )
                 
+                # Новая статистика по типам кортов
+                court_type_stats = await conn.fetch(
+                    f"""
+                    SELECT court_type, COUNT(*) as count
+                    FROM {BOOKING_TABLE}
+                    WHERE court_type IS NOT NULL
+                    GROUP BY court_type
+                    ORDER BY count DESC
+                    """
+                )
+                
+                # Новая статистика по категориям времени
+                time_category_stats = await conn.fetch(
+                    f"""
+                    SELECT time_category, COUNT(*) as count
+                    FROM {BOOKING_TABLE}
+                    WHERE time_category IS NOT NULL
+                    GROUP BY time_category
+                    ORDER BY count DESC
+                    """
+                )
+                
+                # Новая статистика по локациям
+                location_stats = await conn.fetch(
+                    f"""
+                    SELECT location_name, COUNT(*) as count
+                    FROM {BOOKING_TABLE}
+                    WHERE location_name IS NOT NULL
+                    GROUP BY location_name
+                    ORDER BY count DESC
+                    """
+                )
+                
                 # Формируем результат
                 result = {
                     'url_count': url_count,
@@ -558,6 +734,27 @@ class DatabaseManager:
                             'count': row['count']
                         }
                         for row in url_stats
+                    ],
+                    'court_type_stats': [
+                        {
+                            'court_type': row['court_type'],
+                            'count': row['count']
+                        }
+                        for row in court_type_stats
+                    ],
+                    'time_category_stats': [
+                        {
+                            'time_category': row['time_category'],
+                            'count': row['count']
+                        }
+                        for row in time_category_stats
+                    ],
+                    'location_stats': [
+                        {
+                            'location_name': row['location_name'],
+                            'count': row['count']
+                        }
+                        for row in location_stats
                     ]
                 }
                 
@@ -569,7 +766,10 @@ class DatabaseManager:
                 'url_count': 0,
                 'booking_count': 0,
                 'date_stats': [],
-                'url_stats': []
+                'url_stats': [],
+                'court_type_stats': [],
+                'time_category_stats': [],
+                'location_stats': []
             }
     
     async def _parse_date(self, date_str: str) -> datetime.date:
@@ -666,3 +866,208 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Ошибка при парсинге времени {time_str}: {str(e)}")
             return datetime.now().time()
+            
+    async def get_business_analytics(self) -> Dict[str, Any]:
+        """
+        Получение расширенной бизнес-аналитики по данным бронирования.
+        
+        Returns:
+            Dict[str, Any]: Словарь с бизнес-аналитикой
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Диапазоны цен по типу корта
+                price_ranges = await conn.fetch(
+                    f"""
+                    SELECT 
+                        court_type,
+                        MIN(CAST(REGEXP_REPLACE(price, '[^0-9]', '', 'g') AS INTEGER)) as min_price,
+                        MAX(CAST(REGEXP_REPLACE(price, '[^0-9]', '', 'g') AS INTEGER)) as max_price,
+                        AVG(CAST(REGEXP_REPLACE(price, '[^0-9]', '', 'g') AS INTEGER)) as avg_price,
+                        COUNT(DISTINCT url_id) as venue_count
+                    FROM {BOOKING_TABLE}
+                    WHERE court_type IS NOT NULL AND price ~ '^[0-9]'
+                    GROUP BY court_type
+                    ORDER BY avg_price DESC
+                    """
+                )
+                
+                # Сравнение цен по категориям времени
+                price_comparison = await conn.fetch(
+                    f"""
+                    SELECT 
+                        court_type,
+                        time_category,
+                        AVG(CAST(REGEXP_REPLACE(price, '[^0-9]', '', 'g') AS INTEGER)) as avg_price,
+                        COUNT(*) as slot_count
+                    FROM {BOOKING_TABLE}
+                    WHERE court_type IS NOT NULL AND time_category IS NOT NULL AND price ~ '^[0-9]'
+                    GROUP BY court_type, time_category
+                    ORDER BY court_type, 
+                        CASE 
+                            WHEN time_category = 'DAY' THEN 1 
+                            WHEN time_category = 'EVENING' THEN 2 
+                            WHEN time_category = 'WEEKEND' THEN 3 
+                            ELSE 4 
+                        END
+                    """
+                )
+                
+                # Доступность по местоположению
+                availability = await conn.fetch(
+                    f"""
+                    SELECT 
+                        location_name,
+                        date,
+                        COUNT(*) as total_slots
+                    FROM {BOOKING_TABLE}
+                    WHERE location_name IS NOT NULL
+                    GROUP BY location_name, date
+                    ORDER BY date DESC, location_name
+                    LIMIT 100
+                    """
+                )
+                
+                # Типы кортов по площадке
+                court_types = await conn.fetch(
+                    f"""
+                    SELECT 
+                        u.url,
+                        b.location_name,
+                        b.court_type,
+                        COUNT(*) as slot_count
+                    FROM {BOOKING_TABLE} b
+                    JOIN {URL_TABLE} u ON b.url_id = u.id
+                    WHERE b.court_type IS NOT NULL
+                    GROUP BY u.url, b.location_name, b.court_type
+                    ORDER BY u.url, b.location_name, slot_count DESC
+                    """
+                )
+                
+                # История изменения цен
+                price_history = await conn.fetch(
+                    """
+                    WITH current_prices AS (
+                        SELECT 
+                            b.id,
+                            b.price,
+                            b.court_type,
+                            b.location_name,
+                            b.time_category,
+                            u.url
+                        FROM booking_data b
+                        JOIN urls u ON b.url_id = u.id
+                        WHERE b.price IS NOT NULL
+                    ),
+                    historical_prices AS (
+                        SELECT 
+                            ph.booking_data_id,
+                            ph.price,
+                            ph.recorded_at
+                        FROM price_history ph
+                        WHERE ph.recorded_at >= CURRENT_DATE - INTERVAL '30 days'
+                    )
+                    SELECT 
+                        cp.id,
+                        cp.price as current_price,
+                        hp.price as historical_price,
+                        hp.recorded_at,
+                        cp.court_type,
+                        cp.location_name,
+                        cp.time_category,
+                        cp.url
+                    FROM current_prices cp
+                    JOIN historical_prices hp ON cp.id = hp.booking_data_id
+                    WHERE cp.price != hp.price
+                    ORDER BY hp.recorded_at DESC
+                    LIMIT 100
+                    """
+                )
+                
+                # Требование предоплаты по типам кортов
+                prepayment_stats = await conn.fetch(
+                    f"""
+                    SELECT 
+                        court_type,
+                        prepayment_required,
+                        COUNT(*) as count
+                    FROM {BOOKING_TABLE}
+                    WHERE court_type IS NOT NULL
+                    GROUP BY court_type, prepayment_required
+                    ORDER BY court_type, prepayment_required
+                    """
+                )
+                
+                # Формируем результат
+                result = {
+                    'price_ranges': [
+                        {
+                            'court_type': row['court_type'],
+                            'min_price': row['min_price'],
+                            'max_price': row['max_price'],
+                            'avg_price': float(row['avg_price']),
+                            'venue_count': row['venue_count']
+                        }
+                        for row in price_ranges
+                    ],
+                    'price_comparison': [
+                        {
+                            'court_type': row['court_type'],
+                            'time_category': row['time_category'],
+                            'avg_price': float(row['avg_price']),
+                            'slot_count': row['slot_count']
+                        }
+                        for row in price_comparison
+                    ],
+                    'availability': [
+                        {
+                            'location_name': row['location_name'],
+                            'date': row['date'].isoformat(),
+                            'total_slots': row['total_slots']
+                        }
+                        for row in availability
+                    ],
+                    'court_types': [
+                        {
+                            'url': row['url'],
+                            'location_name': row['location_name'],
+                            'court_type': row['court_type'],
+                            'slot_count': row['slot_count']
+                        }
+                        for row in court_types
+                    ],
+                    'price_history': [
+                        {
+                            'id': row['id'],
+                            'current_price': row['current_price'],
+                            'historical_price': row['historical_price'],
+                            'recorded_at': row['recorded_at'].isoformat(),
+                            'court_type': row['court_type'],
+                            'location_name': row['location_name'],
+                            'time_category': row['time_category'],
+                            'url': row['url']
+                        }
+                        for row in price_history
+                    ],
+                    'prepayment_stats': [
+                        {
+                            'court_type': row['court_type'],
+                            'prepayment_required': row['prepayment_required'],
+                            'count': row['count']
+                        }
+                        for row in prepayment_stats
+                    ]
+                }
+                
+                return result
+        
+        except Exception as e:
+            logger.error(f"Ошибка при получении бизнес-аналитики: {str(e)}")
+            return {
+                'price_ranges': [],
+                'price_comparison': [],
+                'availability': [],
+                'court_types': [],
+                'price_history': [],
+                'prepayment_stats': []
+            }

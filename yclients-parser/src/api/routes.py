@@ -151,6 +151,35 @@ async def get_status(api_key: str = Depends(get_api_key)):
         )
 
 
+@app.get("/analytics", response_model=ApiResponse)
+async def get_analytics(api_key: str = Depends(get_api_key)):
+    """
+    Получение расширенной бизнес-аналитики.
+    
+    Args:
+        api_key: API-ключ для авторизации
+    
+    Returns:
+        ApiResponse: Бизнес-аналитика
+    """
+    try:
+        # Получаем бизнес-аналитику
+        analytics = await db_manager.get_business_analytics()
+        
+        return ApiResponse(
+            status="success",
+            message="Бизнес-аналитика получена",
+            data=analytics
+        )
+    
+    except Exception as e:
+        logger.error(f"Ошибка при получении бизнес-аналитики: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при получении бизнес-аналитики: {str(e)}"
+        )
+
+
 @app.get("/urls", response_model=ApiResponse)
 async def get_urls(
     active_only: bool = Query(False, description="Только активные URL"),
@@ -503,6 +532,9 @@ async def get_booking_data(
     url: Optional[str] = Query(None, description="URL страницы"),
     date_from: Optional[str] = Query(None, description="Начальная дата (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Конечная дата (YYYY-MM-DD)"),
+    location_name: Optional[str] = Query(None, description="Название местоположения"),
+    court_type: Optional[str] = Query(None, description="Тип корта (TENNIS, BASKETBALL, etc.)"),
+    time_category: Optional[str] = Query(None, description="Категория времени (DAY, EVENING, WEEKEND)"),
     limit: int = Query(100, description="Максимальное количество записей"),
     offset: int = Query(0, description="Смещение"),
     api_key: str = Depends(get_api_key)
@@ -526,6 +558,8 @@ async def get_booking_data(
         # Формируем запрос
         query = f"""
             SELECT b.id, u.url, b.date, b.time, b.price, b.provider, b.seat_number, 
+                b.location_name, b.court_type, b.time_category, b.duration, 
+                b.review_count, b.prepayment_required, b.raw_venue_data,
                 b.extra_data, b.created_at, b.updated_at
             FROM {db_manager.booking_table} b
             JOIN {db_manager.url_table} u ON b.url_id = u.id
@@ -549,6 +583,19 @@ async def get_booking_data(
         if date_to:
             query += f" AND b.date <= ${len(params) + 1}"
             params.append(date_to)
+            
+        # Новые фильтры бизнес-аналитики
+        if location_name:
+            query += f" AND b.location_name = ${len(params) + 1}"
+            params.append(location_name)
+            
+        if court_type:
+            query += f" AND b.court_type = ${len(params) + 1}"
+            params.append(court_type)
+            
+        if time_category:
+            query += f" AND b.time_category = ${len(params) + 1}"
+            params.append(time_category)
         
         # Получаем общее количество записей
         count_query = f"SELECT COUNT(*) FROM ({query}) AS count_query"
@@ -576,9 +623,19 @@ async def get_booking_data(
                     "price": row["price"],
                     "provider": row["provider"],
                     "seat_number": row["seat_number"],
+                    "location_name": row["location_name"],
+                    "court_type": row["court_type"],
+                    "time_category": row["time_category"],
+                    "duration": row["duration"],
+                    "review_count": row["review_count"],
+                    "prepayment_required": row["prepayment_required"],
                     "created_at": row["created_at"].isoformat() if row["created_at"] else None,
                     "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
                 }
+                
+                # Add raw venue data if it exists
+                if row["raw_venue_data"]:
+                    data["raw_venue_data"] = json.loads(row["raw_venue_data"]) if isinstance(row["raw_venue_data"], str) else row["raw_venue_data"]
                 
                 # Добавляем дополнительные данные
                 if row["extra_data"]:
@@ -616,6 +673,10 @@ async def export_data(
     url: Optional[str] = Query(None, description="URL страницы"),
     date_from: Optional[str] = Query(None, description="Начальная дата (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Конечная дата (YYYY-MM-DD)"),
+    location_name: Optional[str] = Query(None, description="Название местоположения"),
+    court_type: Optional[str] = Query(None, description="Тип корта (TENNIS, BASKETBALL, etc.)"),
+    time_category: Optional[str] = Query(None, description="Категория времени (DAY, EVENING, WEEKEND)"),
+    include_analytics: Optional[bool] = Query(False, description="Включить аналитические данные"),
     api_key: str = Depends(get_api_key)
 ):
     """
@@ -661,9 +722,15 @@ async def export_data(
         
         # Экспортируем данные
         if format.lower() == "csv":
-            filepath = await db_manager.export_to_csv(filepath, request_url, date_from, date_to)
+            filepath = await db_manager.export_to_csv(
+                filepath, request_url, date_from, date_to,
+                location_name, court_type, time_category, include_analytics
+            )
         else:
-            filepath = await db_manager.export_to_json(filepath, request_url, date_from, date_to)
+            filepath = await db_manager.export_to_json(
+                filepath, request_url, date_from, date_to,
+                location_name, court_type, time_category, include_analytics
+            )
         
         if not filepath:
             raise HTTPException(
@@ -692,6 +759,227 @@ async def export_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при экспорте данных: {str(e)}"
+        )
+
+
+@app.get("/analytics/pricing", response_model=ApiResponse)
+async def get_price_analytics(
+    court_type: Optional[str] = Query(None, description="Тип корта (TENNIS, BASKETBALL, etc.)"),
+    time_category: Optional[str] = Query(None, description="Категория времени (DAY, EVENING, WEEKEND)"),
+    location: Optional[str] = Query(None, description="Название местоположения"),
+    time_frame: Optional[str] = Query("last_30_days", description="Временной период (last_7_days, last_30_days, last_90_days)"),
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Получение аналитики цен по кортам.
+    
+    Args:
+        court_type: Фильтр по типу корта
+        time_category: Фильтр по категории времени
+        location: Фильтр по местоположению
+        time_frame: Временной период
+        api_key: API-ключ для авторизации
+    
+    Returns:
+        ApiResponse: Аналитические данные по ценам
+    """
+    try:
+        # Получаем аналитические данные
+        price_ranges = None
+        price_comparison = None
+        
+        async with db_manager.pool.acquire() as conn:
+            # Получаем диапазоны цен по типу корта
+            query, params = BookingQueries.get_price_ranges_by_court_type()
+            price_ranges = await conn.fetch(query, *params)
+            
+            # Получаем сравнение цен по категориям времени
+            query, params = BookingQueries.get_price_comparison_by_time_category()
+            price_comparison = await conn.fetch(query, *params)
+        
+        # Преобразуем результаты
+        price_ranges_data = []
+        for row in price_ranges:
+            if court_type and row["court_type"] != court_type:
+                continue
+                
+            price_ranges_data.append({
+                "court_type": row["court_type"],
+                "min_price": row["min_price"],
+                "max_price": row["max_price"],
+                "avg_price": float(row["avg_price"]),
+                "venue_count": row["venue_count"]
+            })
+        
+        price_comparison_data = []
+        for row in price_comparison:
+            if court_type and row["court_type"] != court_type:
+                continue
+                
+            if time_category and row["time_category"] != time_category:
+                continue
+                
+            price_comparison_data.append({
+                "court_type": row["court_type"],
+                "time_category": row["time_category"],
+                "avg_price": float(row["avg_price"]),
+                "slot_count": row["slot_count"]
+            })
+        
+        return ApiResponse(
+            status="success",
+            message="Получены аналитические данные по ценам",
+            data={
+                "price_ranges": price_ranges_data,
+                "price_comparison": price_comparison_data
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"Ошибка при получении аналитики цен: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при получении аналитики цен: {str(e)}"
+        )
+
+
+@app.get("/analytics/availability", response_model=ApiResponse)
+async def get_availability_analytics(
+    court_type: Optional[str] = Query(None, description="Тип корта (TENNIS, BASKETBALL, etc.)"),
+    location: Optional[str] = Query(None, description="Название местоположения"),
+    time_frame: Optional[str] = Query("last_30_days", description="Временной период (last_7_days, last_30_days, last_90_days)"),
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Получение аналитики доступности.
+    
+    Args:
+        court_type: Фильтр по типу корта
+        location: Фильтр по местоположению
+        time_frame: Временной период
+        api_key: API-ключ для авторизации
+    
+    Returns:
+        ApiResponse: Аналитические данные по доступности
+    """
+    try:
+        # Получаем аналитические данные
+        availability_by_location = None
+        court_types_by_venue = None
+        
+        async with db_manager.pool.acquire() as conn:
+            # Получаем доступность по местоположению
+            query, params = BookingQueries.get_availability_by_location()
+            availability_by_location = await conn.fetch(query, *params)
+            
+            # Получаем типы кортов по площадке
+            query, params = BookingQueries.get_court_types_by_venue()
+            court_types_by_venue = await conn.fetch(query, *params)
+        
+        # Преобразуем результаты
+        availability_data = []
+        for row in availability_by_location:
+            if location and row["location_name"] != location:
+                continue
+                
+            availability_data.append({
+                "location_name": row["location_name"],
+                "date": row["date"].isoformat(),
+                "total_slots": row["total_slots"]
+            })
+        
+        venue_data = []
+        for row in court_types_by_venue:
+            if court_type and row["court_type"] != court_type:
+                continue
+                
+            if location and row["location_name"] != location:
+                continue
+                
+            venue_data.append({
+                "url": row["url"],
+                "location_name": row["location_name"],
+                "court_type": row["court_type"],
+                "slot_count": row["slot_count"]
+            })
+        
+        return ApiResponse(
+            status="success",
+            message="Получены аналитические данные по доступности",
+            data={
+                "availability": availability_data,
+                "venues": venue_data
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"Ошибка при получении аналитики доступности: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при получении аналитики доступности: {str(e)}"
+        )
+
+
+@app.get("/analytics/price_history", response_model=ApiResponse)
+async def get_price_history_analytics(
+    venue_id: Optional[int] = Query(None, description="ID площадки"),
+    court_type: Optional[str] = Query(None, description="Тип корта (TENNIS, BASKETBALL, etc.)"),
+    start_date: Optional[str] = Query(None, description="Начальная дата (YYYY-MM-DD)"),
+    days: Optional[int] = Query(30, description="Количество дней для анализа"),
+    api_key: str = Depends(get_api_key)
+):
+    """
+    Получение аналитики изменения цен.
+    
+    Args:
+        venue_id: ID площадки
+        court_type: Фильтр по типу корта
+        start_date: Начальная дата
+        days: Количество дней для анализа
+        api_key: API-ключ для авторизации
+    
+    Returns:
+        ApiResponse: Аналитические данные по изменению цен
+    """
+    try:
+        # Получаем аналитические данные
+        price_changes = None
+        
+        async with db_manager.pool.acquire() as conn:
+            # Получаем изменения цен
+            query, params = PriceHistoryQueries.get_price_changes(days)
+            price_changes = await conn.fetch(query, *params)
+        
+        # Преобразуем результаты
+        price_history_data = []
+        for row in price_changes:
+            if court_type and row["court_type"] != court_type:
+                continue
+                
+            price_history_data.append({
+                "id": row["id"],
+                "current_price": row["current_price"],
+                "historical_price": row["historical_price"],
+                "recorded_at": row["recorded_at"].isoformat(),
+                "court_type": row["court_type"],
+                "location_name": row["location_name"],
+                "time_category": row["time_category"],
+                "url": row["url"]
+            })
+        
+        return ApiResponse(
+            status="success",
+            message="Получены аналитические данные по изменению цен",
+            data={
+                "price_history": price_history_data
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"Ошибка при получении аналитики изменения цен: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка при получении аналитики изменения цен: {str(e)}"
         )
 
 
