@@ -1,6 +1,6 @@
 [
-  ".",
   "new",
+  "scripts",
   "src",
   "src/browser",
   "src/parser",

@@ -9,8 +9,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 
-from yclients_parser.src.parser.enhanced_data_extractor import EnhancedDataExtractor
-from yclients_parser.src.parser.data_extractor import DataExtractor
+from src.parser.enhanced_data_extractor import EnhancedDataExtractor
+from src.parser.data_extractor import DataExtractor
 
 
 class TestEnhancedDataExtractor(unittest.TestCase):
@@ -184,6 +184,7 @@ class TestEnhancedDataExtractor(unittest.TestCase):
             {"address": "", "city": "", "region": ""}
         )
 
+    @pytest.mark.asyncio
     @patch.object(EnhancedDataExtractor, 'extract_court_type')
     @patch.object(EnhancedDataExtractor, 'determine_time_category')
     @patch.object(EnhancedDataExtractor, 'extract_duration')
