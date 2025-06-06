@@ -1,0 +1,4 @@
+# Примеры URL для парсинга YCLIENTS
+# Замените на ваши реальные URL
+https://yclients.com/company/111111/booking
+https://yclients.com/company/222222/booking

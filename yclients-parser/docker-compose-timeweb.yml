@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # Основное приложение парсера YCLIENTS для TimeWeb Cloud Apps
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile-timeweb
+    container_name: yclients_parser_timeweb
+    restart: unless-stopped
+    environment:
+      # Базовые настройки
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=false
+      - API_KEY=${API_KEY:-yclients_parser_api_key_secure_2024}
+      
+      # Настройки базы данных (внешняя БД, БЕЗ встроенного PostgreSQL)
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      
+      # Настройки Supabase (альтернатива PostgreSQL)
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      
+      # Настройки парсера
+      - PARSE_URLS=${PARSE_URLS}
+      - PARSE_INTERVAL=${PARSE_INTERVAL:-600}
+      
+      # Настройки прокси (опционально для обхода блокировок)
+      - PROXY_SERVERS=${PROXY_SERVERS:-}
+      - PROXY_USERNAMES=${PROXY_USERNAMES:-}
+      - PROXY_PASSWORDS=${PROXY_PASSWORDS:-}
+      - PROXY_PORTS=${PROXY_PORTS:-}
+      
+      # TimeWeb специфичные настройки
+      - ENVIRONMENT=timeweb_production
+      - DATA_PERSISTENCE=memory
+      - LOGS_OUTPUT=stdout
+    
+    # ТОЛЬКО порт 8000 - порты 80/443 зарезервированы в TimeWeb
+    ports:
+      - "8000:8000"
+    
+    # Команда запуска всех компонентов
+    command: ["--mode", "all"]
+    
+    # Healthcheck для мониторинга
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# БЕЗ volumes - все данные в памяти или внешней БД
+# БЕЗ встроенного PostgreSQL - используется внешняя БД
