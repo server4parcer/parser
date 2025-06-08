@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # База данных PostgreSQL
+  postgres:
+    image: postgres:14-alpine
+    container_name: yclients_parser_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-yclients_parser}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"  # Чтобы избежать конфликта с локальным PostgreSQL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-yclients_parser}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Основное приложение парсера YCLIENTS
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yclients_parser
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Базовые настройки
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=False
+      - API_KEY=${API_KEY:-yclients_parser_api_key}
+      
+      # Настройки базы данных
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-yclients_parser}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      
+      # Настройки Supabase (если используется)
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      
+      # Настройки парсера
+      - PARSE_URLS=${PARSE_URLS:-}
+      - PARSE_INTERVAL=${PARSE_INTERVAL:-600}
+      
+      # Настройки прокси (если используются)
+      - PROXY_SERVERS=${PROXY_SERVERS:-}
+      - PROXY_USERNAMES=${PROXY_USERNAMES:-}
+      - PROXY_PASSWORDS=${PROXY_PASSWORDS:-}
+      - PROXY_PORTS=${PROXY_PORTS:-}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"
+    command: >
+      --mode all
+      # Другие параметры запуска можно добавить здесь
+
+volumes:
+  postgres_data:

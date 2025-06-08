@@ -1,0 +1,28 @@
+# Базовые библиотеки
+python-dotenv>=1.0.0
+asyncio>=3.4.3
+aiohttp>=3.8.4
+
+# Playwright для автоматизации браузера
+playwright>=1.37.0
+
+# База данных
+asyncpg>=0.27.0
+supabase>=1.0.3
+
+# API
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+
+# Утилиты для обработки данных
+pandas>=2.0.0
+ujson>=5.8.0
+
+# Логирование и мониторинг
+python-logging-loki>=0.3.1
+python-telegram-bot>=13.15
+
+# Тестирование
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
