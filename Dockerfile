@@ -1,15 +1,24 @@
-# Используем официальный образ Python как базовый
+# Dockerfile для TimeWeb Cloud Apps
+# Оптимизирован для работы БЕЗ volumes и с внешней БД
+
 FROM python:3.10-slim
 
-# Устанавливаем рабочую директорию
+# Метаданные
+LABEL maintainer="YCLIENTS Parser Team"
+LABEL version="1.0-timeweb"
+LABEL description="YCLIENTS Parser for TimeWeb Cloud Apps"
+
+# Рабочая директория
 WORKDIR /app
 
-# Устанавливаем переменные окружения
+# Переменные окружения для оптимизации
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/app/pw-browsers
+    PLAYWRIGHT_BROWSERS_PATH=/app/pw-browsers \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Устанавливаем необходимые пакеты системы
+# Установка системных зависимостей
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -18,37 +27,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     build-essential \
     libpq-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Копируем файлы зависимостей в контейнер
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+# Копирование requirements.txt для кэширования слоев
 COPY requirements.txt .
 
-# Устанавливаем зависимости Python
+# Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем Playwright и нужные браузеры
-RUN playwright install chromium \
-    && playwright install-deps chromium
+# Установка Playwright и браузеров
+RUN playwright install chromium && \
+    playwright install-deps chromium
 
-# Копируем все файлы проекта в контейнер
+# Копирование всего исходного кода
 COPY . .
 
-# Создаем необходимые директории
-RUN mkdir -p /app/data/export \
-    && mkdir -p /app/logs
+# Создание директорий ВНУТРИ контейнера (БЕЗ volumes)
+# Данные будут храниться в памяти/внешней БД
+RUN mkdir -p /app/data/export && \
+    mkdir -p /app/logs && \
+    chmod +x /app/scripts/*.sh 2>/dev/null || true
 
-# Проверяем структуру проекта
-RUN ls -la /app
+# Создание пользователя для безопасности
+RUN groupadd -r yclients && useradd -r -g yclients yclients && \
+    chown -R yclients:yclients /app
+USER yclients
 
-# Устанавливаем права на выполнение скриптов
-RUN chmod +x /app/scripts/*.sh
-
-# Открываем порт для API
+# Порт приложения
 EXPOSE 8000
 
-# Устанавливаем точку входа
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/status || exit 1
+
+# Точка входа
 ENTRYPOINT ["python", "src/main.py"]
 
-# Аргументы по умолчанию для запуска всех компонентов
+# Команда по умолчанию
 CMD ["--mode", "all"]
