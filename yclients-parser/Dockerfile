@@ -1,54 +1,35 @@
-# Используем официальный образ Python как базовый
 FROM python:3.10-slim
 
-# Устанавливаем рабочую директорию
+# Установка рабочей директории
 WORKDIR /app
 
-# Устанавливаем переменные окружения
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/app/pw-browsers
-
-# Устанавливаем необходимые пакеты системы
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Установка системных зависимостей
+RUN apt-get update && apt-get install -y \
     wget \
     curl \
-    gnupg \
     ca-certificates \
-    git \
-    build-essential \
-    libpq-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем файлы зависимостей в контейнер
+# Копирование и установка Python зависимостей
 COPY requirements.txt .
-
-# Устанавливаем зависимости Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем Playwright и нужные браузеры
-RUN playwright install chromium \
-    && playwright install-deps chromium
+# Установка Playwright с браузерами
+RUN playwright install chromium --with-deps
 
-# Копируем все файлы проекта в контейнер
+# Копирование всего кода приложения
 COPY . .
 
-# Создаем необходимые директории
-RUN mkdir -p /app/data/export \
-    && mkdir -p /app/logs
+# Создание необходимых директорий
+RUN mkdir -p /app/data /app/logs
 
-# Проверяем структуру проекта
-RUN ls -la /app
+# Создание пользователя для безопасности
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
-# Устанавливаем права на выполнение скриптов
-RUN chmod +x /app/scripts/*.sh
-
-# Открываем порт для API
+# Открытие порта
 EXPOSE 8000
 
-# Устанавливаем точку входа
-ENTRYPOINT ["python", "src/main.py"]
-
-# Аргументы по умолчанию для запуска всех компонентов
-CMD ["--mode", "all"]
+# Команда запуска
+CMD ["python", "src/main.py", "--mode", "all"]

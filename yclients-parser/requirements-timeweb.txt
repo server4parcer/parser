@@ -1,6 +1,5 @@
-# YClients Parser - Requirements для Timeweb
+# Минимальные requirements для Timeweb деплоя
 python-dotenv>=1.0.0
-asyncio>=3.4.3
 aiohttp>=3.8.4
 playwright>=1.37.0
 supabase>=1.0.3
@@ -8,4 +7,5 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 pydantic>=2.0.0
 ujson>=5.8.0
-asyncpg>=0.27.0
+pytest>=7.4.0
+asyncio>=3.4.3
