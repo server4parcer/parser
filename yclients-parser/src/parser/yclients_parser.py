@@ -12,10 +12,8 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from src.browser.browser_manager import BrowserManager
 from src.browser.proxy_manager import ProxyManager
 from src.database.db_manager import DatabaseManager
-from src.parser.improved_data_extractor import ImprovedDataExtractor
-from src.parser.improved_data_extractor import ImprovedDataExtractor
-from src.parser.improved_data_extractor import ImprovedDataExtractor
-from src.parser.selectors import SELECTORS
+from src.parser.production_data_extractor import ProductionDataExtractor
+from src.parser.yclients_real_selectors import YCLIENTS_REAL_SELECTORS
 from config.settings import PARSE_INTERVAL, MAX_RETRIES, TIMEOUT, USER_AGENTS, PAGE_LOAD_TIMEOUT
 
 
@@ -40,8 +38,8 @@ class YClientsParser:
         self.db_manager = db_manager
         self.browser_manager = BrowserManager()
         self.proxy_manager = ProxyManager()
-        # Используем улучшенный экстрактор данных
-        self.data_extractor = ImprovedDataExtractor()
+        # Используем production-ready экстрактор данных
+        self.data_extractor = ProductionDataExtractor()
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -228,7 +226,7 @@ class YClientsParser:
         """
         try:
             # Проверка на наличие капчи или других форм защиты
-            captcha_exists = await self.page.query_selector(SELECTORS["captcha"])
+            captcha_exists = await self.page.query_selector(".captcha, .recaptcha, .hcaptcha")
             if captcha_exists:
                 logger.warning("Обнаружена CAPTCHA, попытка обхода...")
                 # Здесь могла бы быть реализация обхода капчи
@@ -236,7 +234,7 @@ class YClientsParser:
                 return False
             
             # Проверка на блокировку IP
-            blocked_ip = await self.page.query_selector(SELECTORS["ip_blocked"])
+            blocked_ip = await self.page.query_selector(".blocked, .access-denied, .error-403")
             if blocked_ip:
                 logger.warning("IP заблокирован, смена прокси")
                 return False
@@ -258,10 +256,10 @@ class YClientsParser:
         logger.info("Извлечение доступных дат бронирования")
         try:
             # Ожидаем загрузки календаря
-            await self.page.wait_for_selector(SELECTORS["calendar"], timeout=TIMEOUT)
+            await self.page.wait_for_selector(YCLIENTS_REAL_SELECTORS["calendar"]["calendar_container"], timeout=TIMEOUT)
             
             # Получаем элементы доступных дат
-            date_elements = await self.page.query_selector_all(SELECTORS["available_dates"])
+            date_elements = await self.page.query_selector_all(YCLIENTS_REAL_SELECTORS["calendar"]["available_dates"])
             
             # Извлечение данных из элементов
             available_dates = []
@@ -295,7 +293,7 @@ class YClientsParser:
         logger.info(f"Извлечение временных слотов для даты: {date}")
         try:
             # Выбираем дату в календаре
-            date_selector = SELECTORS["date_selector"].format(date=date)
+            date_selector = YCLIENTS_REAL_SELECTORS["calendar"]["date_selector"].format(date=date)
             date_element = await self.page.query_selector(date_selector)
             
             if not date_element:
@@ -307,10 +305,10 @@ class YClientsParser:
             await asyncio.sleep(2)  # Ожидание загрузки слотов
             
             # Ждем появления контейнера со слотами
-            await self.page.wait_for_selector(SELECTORS["time_slots_container"], timeout=TIMEOUT)
+            await self.page.wait_for_selector(YCLIENTS_REAL_SELECTORS["time_slots"]["container"], timeout=TIMEOUT)
             
             # Получаем элементы доступных временных слотов
-            slot_elements = await self.page.query_selector_all(SELECTORS["time_slots"])
+            slot_elements = await self.page.query_selector_all(YCLIENTS_REAL_SELECTORS["time_slots"]["slots"])
             
             time_slots = []
             for slot_element in slot_elements:
@@ -318,8 +316,8 @@ class YClientsParser:
                 date_obj = datetime.strptime(date, "%Y-%m-%d")
                 is_weekend = date_obj.weekday() >= 5  # 5 и 6 - суббота и воскресенье
                 
-                # Используем улучшенный экстрактор данных для получения всех полей
-                slot_data = await self.data_extractor.extract_booking_data_from_slot_improved(
+                # Используем исправленный экстрактор данных для получения всех полей
+                slot_data = await self.data_extractor.extract_slot_data_fixed(
                     slot_element
                 )
                 
