@@ -24,10 +24,6 @@ COPY . .
 # Создание необходимых директорий
 RUN mkdir -p /app/data /app/logs
 
-# Создание пользователя для безопасности
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
-
 # Открытие порта
 EXPOSE 8000
 

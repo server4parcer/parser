@@ -10,16 +10,25 @@ import argparse
 import uvicorn
 from typing import List, Optional
 
+print("🚀 Starting YClients Parser...")
+print(f"📁 Working directory: {os.getcwd()}")
+print(f"🐍 Python path: {sys.path}")
+
 # Исправляем пути для работы в Docker
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
 sys.path.insert(0, current_dir)
 
+print(f"📁 Current dir: {current_dir}")
+print(f"📁 Parent dir: {parent_dir}")
+
 # Безопасные импорты с fallback
 try:
     from config.logging_config import setup_logging
-except ImportError:
+    print("✅ Config logging imported successfully")
+except ImportError as e:
+    print(f"⚠️ Config logging import failed: {e}")
     # Fallback настройка логирования
     def setup_logging():
         logging.basicConfig(
@@ -32,7 +41,9 @@ try:
         API_HOST, API_PORT, API_DEBUG, 
         DEFAULT_URLS, PARSE_INTERVAL
     )
-except ImportError:
+    print("✅ Config settings imported successfully")
+except ImportError as e:
+    print(f"⚠️ Config settings import failed: {e}")
     # Fallback настройки
     API_HOST = os.environ.get("API_HOST", "0.0.0.0")
     API_PORT = int(os.environ.get("API_PORT", "8000"))
@@ -43,15 +54,26 @@ except ImportError:
     url_env = os.environ.get("PARSE_URLS", "")
     DEFAULT_URLS = [url.strip() for url in url_env.split(",") if url.strip()] if url_env else []
 
+print(f"⚙️ API_HOST: {API_HOST}")
+print(f"⚙️ API_PORT: {API_PORT}")
+print(f"📋 DEFAULT_URLS: {DEFAULT_URLS}")
+
 try:
     from src.database.db_manager import DatabaseManager
     from src.parser.yclients_parser import YClientsParser
     from src.api.routes import app
-except ImportError:
+    print("✅ Main modules imported successfully")
+except ImportError as e:
+    print(f"⚠️ Main modules import failed: {e}")
     # Пробуем импорт без src prefix
-    from database.db_manager import DatabaseManager
-    from parser.yclients_parser import YClientsParser
-    from api.routes import app
+    try:
+        from database.db_manager import DatabaseManager
+        from parser.yclients_parser import YClientsParser
+        from api.routes import app
+        print("✅ Fallback modules imported successfully")
+    except ImportError as e2:
+        print(f"❌ CRITICAL: All imports failed: {e2}")
+        sys.exit(1)
 
 # Настройка логирования
 setup_logging()
@@ -174,15 +196,19 @@ def parse_arguments():
 
 async def main():
     """Основная функция приложения."""
+    print("🎯 Entering main() function...")
     logger.info("🎉 YClients Parser запускается")
     logger.info(f"🐳 Режим: Docker/Timeweb")
     
+    print("⚙️ Parsing arguments...")
     # Парсинг аргументов
     args = parse_arguments()
     
+    print(f"📋 Arguments parsed: {args}")
     # Определение URL для парсинга
     urls = args.urls if args.urls else DEFAULT_URLS
     
+    print(f"🔗 URLs determined: {urls}")
     # Логируем настройки
     logger.info(f"⚙️ API Host: {API_HOST}:{API_PORT}")
     logger.info(f"🔧 Debug режим: {API_DEBUG}")
@@ -212,10 +238,16 @@ async def main():
         raise
 
 if __name__ == "__main__":
+    print("🚀 Application starting...")
     try:
+        print("📍 About to run main()...")
         asyncio.run(main())
+        print("✅ Application finished successfully")
     except KeyboardInterrupt:
         print("\n👋 Приложение остановлено")
     except Exception as e:
-        print(f"\n💥 Критическая ошибка: {e}")
+        print(f"\n💥 CRITICAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        print("❌ Application failed to start")
         sys.exit(1)
