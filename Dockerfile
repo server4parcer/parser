@@ -1,35 +1,49 @@
+# Dockerfile для TimeWeb Cloud Apps - ИСПРАВЛЕННАЯ ВЕРСИЯ
 FROM python:3.10-slim
 
-# Установка рабочей директории
+# Рабочая директория
 WORKDIR /app
 
+# Переменные окружения
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/app/pw-browsers
+
 # Установка системных зависимостей
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
+    gnupg \
     ca-certificates \
-    && apt-get clean \
+    build-essential \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование и установка Python зависимостей
+# Копирование requirements.txt
 COPY requirements.txt .
+
+# Установка Python зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Установка Playwright с браузерами
-RUN playwright install chromium --with-deps
+# Установка Playwright браузеров
+RUN playwright install chromium && \
+    playwright install-deps chromium
 
-# Копирование всего кода приложения
+# Копирование исходного кода
 COPY . .
 
-# Создание необходимых директорий
-RUN mkdir -p /app/data /app/logs
+# Создание директорий
+RUN mkdir -p /app/data/export /app/logs
 
-# Создание пользователя для безопасности
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
+# Права доступа
+RUN chmod -R 755 /app
 
-# Открытие порта
+# Порт приложения
 EXPOSE 8000
 
-# Команда запуска
-CMD ["python", "src/main.py", "--mode", "all"]
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/status || exit 1
+
+# Точка входа с диагностикой
+ENTRYPOINT ["python", "startup.py"]
