@@ -45,5 +45,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/status || exit 1
 
-# Точка входа с диагностикой
-ENTRYPOINT ["python", "startup.py"]
+# Максимально простая точка входа
+ENTRYPOINT ["python", "super_simple_startup.py"]
