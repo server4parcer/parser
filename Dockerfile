@@ -1,12 +1,12 @@
-# STEP 3: Database integration - add asyncpg for PostgreSQL
+# STEP 4: Production YClients Parser - Final Version
 FROM python:3.10-slim
 WORKDIR /app
 
-# Install FastAPI, uvicorn and database dependencies
+# Install all required dependencies for production parser
 RUN pip install --no-cache-dir fastapi uvicorn asyncpg
 
-# Copy the database-enabled application
-COPY database_app.py .
+# Copy the production parser
+COPY production_parser.py .
 
 EXPOSE 8000
-CMD ["python", "database_app.py"]
+CMD ["python", "production_parser.py"]
