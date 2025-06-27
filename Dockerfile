@@ -1,12 +1,12 @@
-# STEP 2: FastAPI upgrade - minimal dependencies
+# STEP 3: Database integration - add asyncpg for PostgreSQL
 FROM python:3.10-slim
 WORKDIR /app
 
-# Install FastAPI and uvicorn only
-RUN pip install --no-cache-dir fastapi uvicorn
+# Install FastAPI, uvicorn and database dependencies
+RUN pip install --no-cache-dir fastapi uvicorn asyncpg
 
-# Copy the FastAPI application
-COPY fastapi_app.py .
+# Copy the database-enabled application
+COPY database_app.py .
 
 EXPOSE 8000
-CMD ["python", "fastapi_app.py"]
+CMD ["python", "database_app.py"]
