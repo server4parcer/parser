@@ -237,6 +237,39 @@ class YClientsParser:
         
         return all_results
 
+def write_error_to_file(error_details):
+    """Write detailed error information to file for debugging"""
+    try:
+        error_file_path = "/app/logs/supabase_errors.json"
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(error_file_path), exist_ok=True)
+        
+        # Read existing errors
+        existing_errors = []
+        if os.path.exists(error_file_path):
+            try:
+                with open(error_file_path, 'r') as f:
+                    existing_errors = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                # File is corrupted or unreadable, start fresh
+                existing_errors = []
+        
+        # Add new error
+        existing_errors.append(error_details)
+        
+        # Keep only last 50 errors to prevent file from growing too large
+        existing_errors = existing_errors[-50:]
+        
+        # Write back to file
+        with open(error_file_path, 'w') as f:
+            json.dump(existing_errors, f, indent=2, ensure_ascii=False)
+            
+        logger.info(f"📁 Error logged to file: {error_file_path}")
+            
+    except Exception as e:
+        logger.error(f"❌ Could not write error to file: {e}")
+
 async def save_to_database(data: List[Dict]) -> bool:
     """ИСПРАВЛЕНО: Реальное сохранение в Supabase"""
     global db_manager, parse_results
@@ -281,8 +314,53 @@ async def save_to_database(data: List[Dict]) -> bool:
                     urls_processed.add(url)
                     logger.info(f"✅ Успешно сохранено {len(url_data)} записей для {url}")
                 else:
+                    # ENHANCED ERROR STORAGE - Store detailed save failure info
+                    error_details = {
+                        "url": url,
+                        "error_type": "SaveFailure",
+                        "error_message": "Database save returned False",
+                        "timestamp": datetime.now().isoformat(),
+                        "data_count": len(url_data),
+                        "save_method": "db_manager.save_booking_data"
+                    }
+                    
+                    # Store errors in parse_results for API access
+                    if "database_errors" not in parse_results:
+                        parse_results["database_errors"] = []
+                    
+                    parse_results["database_errors"].append(error_details)
+                    parse_results["last_database_error"] = error_details
+                    parse_results["last_error_time"] = datetime.now().isoformat()
+                    parse_results["error_count"] = parse_results.get("error_count", 0) + 1
+                    
                     logger.error(f"❌ Не удалось сохранить данные для {url}")
+                    
             except Exception as url_error:
+                # ENHANCED ERROR STORAGE - Store detailed exception info
+                error_details = {
+                    "url": url,
+                    "error_type": type(url_error).__name__,
+                    "error_message": str(url_error),
+                    "timestamp": datetime.now().isoformat(),
+                    "data_count": len(url_data),
+                    "exception_details": {
+                        "args": getattr(url_error, 'args', []),
+                        "code": getattr(url_error, 'code', None)
+                    }
+                }
+                
+                # Store errors in parse_results for API access
+                if "database_errors" not in parse_results:
+                    parse_results["database_errors"] = []
+                
+                parse_results["database_errors"].append(error_details)
+                parse_results["last_database_error"] = error_details
+                parse_results["last_error_time"] = datetime.now().isoformat()
+                parse_results["error_count"] = parse_results.get("error_count", 0) + 1
+                
+                # Write error to file for persistent logging
+                write_error_to_file(error_details)
+                
                 logger.error(f"❌ Ошибка сохранения URL {url}: {url_error}")
         
         # Обновляем статистику
@@ -489,6 +567,150 @@ def get_configured_urls():
         "urls": urls,
         "count": len(urls),
         "status": "настроены" if urls else "не_настроены"
+    }
+
+# ДИАГНОСТИЧЕСКИЕ ЭНДПОИНТЫ - Exposing detailed error information programmatically
+@app.get("/diagnostics/errors")
+def get_error_diagnostics():
+    """Get detailed error information for debugging"""
+    return {
+        "last_errors": parse_results.get("last_errors", []),
+        "error_count": parse_results.get("error_count", 0),
+        "last_error_time": parse_results.get("last_error_time"),
+        "database_errors": parse_results.get("database_errors", []),
+        "supabase_connection_status": parse_results.get("supabase_active", False),
+        "last_save_attempt": parse_results.get("last_save_time"),
+        "detailed_diagnostics": parse_results.get("detailed_diagnostics", {}),
+        "last_database_error": parse_results.get("last_database_error"),
+        "last_error_details": parse_results.get("last_error_details"),
+        "diagnostic_available": True,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/diagnostics/test-save")
+async def test_database_save():
+    """Test database save operation and return detailed results"""
+    global db_manager, parse_results
+    
+    if db_manager is None:
+        return {
+            "error": "DatabaseManager not initialized",
+            "available": False,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    test_data = [{
+        "url": "diagnostic_test",
+        "date": "2025-07-15",
+        "time": "10:00",
+        "price": "test_price",
+        "provider": "diagnostic_test_provider",
+        "seat_number": "1",
+        "location_name": "test_location",
+        "court_type": "TEST",
+        "time_category": "ДЕНЬ",
+        "duration": 60,
+        "review_count": 0,
+        "prepayment_required": False,
+        "extracted_at": datetime.now().isoformat()
+    }]
+    
+    try:
+        logger.info("🧪 DIAGNOSTIC: Testing database save operation...")
+        success = await db_manager.save_booking_data("diagnostic_test", test_data)
+        
+        result = {
+            "test_save_success": success,
+            "last_error": parse_results.get("last_database_error"),
+            "error_details": parse_results.get("last_error_details"),
+            "supabase_active": parse_results.get("supabase_active", False),
+            "database_manager_initialized": db_manager.is_initialized if db_manager else False,
+            "test_data_sent": test_data,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if success:
+            logger.info("✅ DIAGNOSTIC: Test save successful")
+        else:
+            logger.error("❌ DIAGNOSTIC: Test save failed")
+            
+        return result
+        
+    except Exception as e:
+        error_info = {
+            "test_save_success": False,
+            "exception": str(e),
+            "exception_type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+            "database_manager_available": db_manager is not None,
+            "database_manager_initialized": db_manager.is_initialized if db_manager else False
+        }
+        
+        # Store diagnostic error
+        parse_results["last_diagnostic_error"] = error_info
+        logger.error(f"❌ DIAGNOSTIC: Exception during test save: {e}")
+        
+        return error_info
+
+@app.get("/diagnostics/error-log")
+def get_error_log():
+    """Read error log file"""
+    try:
+        error_file_path = "/app/logs/supabase_errors.json"
+        if os.path.exists(error_file_path):
+            with open(error_file_path, 'r') as f:
+                errors = json.load(f)
+            return {
+                "errors": errors, 
+                "count": len(errors),
+                "file_path": error_file_path,
+                "file_exists": True
+            }
+        else:
+            return {
+                "errors": [], 
+                "count": 0, 
+                "message": "No error log file found",
+                "file_path": error_file_path,
+                "file_exists": False
+            }
+    except Exception as e:
+        return {
+            "error": f"Could not read error log: {e}",
+            "file_path": "/app/logs/supabase_errors.json",
+            "exception_type": type(e).__name__
+        }
+
+@app.get("/diagnostics/system")
+def get_system_diagnostics():
+    """Get comprehensive system diagnostic information"""
+    return {
+        "environment": {
+            "supabase_url_set": bool(SUPABASE_URL),
+            "supabase_key_set": bool(SUPABASE_KEY),
+            "parse_urls_set": bool(PARSE_URLS),
+            "api_key_set": bool(API_KEY)
+        },
+        "database": {
+            "manager_available": SUPABASE_INTEGRATION_AVAILABLE,
+            "manager_initialized": db_manager.is_initialized if db_manager else False,
+            "connection_active": parse_results.get("supabase_active", False),
+            "last_save_attempt": parse_results.get("last_save_time"),
+            "urls_saved_count": len(parse_results.get("urls_saved", []))
+        },
+        "parser": {
+            "active": parsing_active,
+            "last_run": last_parse_time.isoformat() if last_parse_time else None,
+            "total_extracted": parse_results.get("total_extracted", 0),
+            "urls_configured": len([url for url in PARSE_URLS.split(",") if url.strip()]) if PARSE_URLS else 0
+        },
+        "errors": {
+            "error_count": parse_results.get("error_count", 0),
+            "last_error_time": parse_results.get("last_error_time"),
+            "database_errors_count": len(parse_results.get("database_errors", [])),
+            "has_diagnostic_errors": "last_diagnostic_error" in parse_results
+        },
+        "timestamp": datetime.now().isoformat()
     }
 
 if __name__ == "__main__":
