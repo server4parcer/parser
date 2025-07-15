@@ -17,6 +17,19 @@ from fastapi.responses import HTMLResponse
 import uvicorn
 import logging
 
+# СУПЕРПОПРАВКА: Импорт реального DatabaseManager для Supabase интеграции
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+try:
+    from src.database.db_manager import DatabaseManager
+    SUPABASE_INTEGRATION_AVAILABLE = True
+    print("✅ SUPABASE INTEGRATION: Загружен DatabaseManager")
+except ImportError:
+    SUPABASE_INTEGRATION_AVAILABLE = False
+    print("❌ SUPABASE INTEGRATION: DatabaseManager не найден")
+
 # Переменные окружения
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT = int(os.environ.get("API_PORT", "8000"))
@@ -30,6 +43,9 @@ PARSE_INTERVAL = int(os.environ.get("PARSE_INTERVAL", "600"))
 parsing_active = False
 last_parse_time = None
 parse_results = {"total_extracted": 0, "status": "готов к работе"}
+
+# СУПЕРПОПРАВКА: Глобальный DatabaseManager для Supabase
+db_manager = None
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
@@ -222,20 +238,71 @@ class YClientsParser:
         return all_results
 
 async def save_to_database(data: List[Dict]) -> bool:
-    """Сохранение данных в базу"""
+    """ИСПРАВЛЕНО: Реальное сохранение в Supabase"""
+    global db_manager, parse_results
+    
     try:
-        logger.info(f"💾 Сохранение {len(data)} записей в базу данных...")
+        logger.info(f"💾 РЕАЛЬНОЕ сохранение {len(data)} записей в Supabase...")
         
-        global parse_results
-        parse_results["total_extracted"] += len(data)
-        parse_results["last_data"] = data
+        # Инициализируем DatabaseManager если нужно
+        if db_manager is None:
+            if not SUPABASE_INTEGRATION_AVAILABLE:
+                logger.error("❌ DatabaseManager недоступен")
+                return False
+                
+            db_manager = DatabaseManager()
+            await db_manager.initialize()
+            logger.info("✅ DatabaseManager инициализирован")
+        
+        # Проверяем что DatabaseManager готов
+        if not db_manager.is_initialized:
+            logger.error("❌ DatabaseManager не инициализирован")
+            return False
+        
+        # Сохраняем данные в Supabase для каждого URL
+        success_count = 0
+        urls_processed = set()
+        
+        # Группируем данные по URL
+        data_by_url = {}
+        for item in data:
+            url = item.get('url', 'unknown')
+            if url not in data_by_url:
+                data_by_url[url] = []
+            data_by_url[url].append(item)
+        
+        # Сохраняем данные для каждого URL отдельно
+        for url, url_data in data_by_url.items():
+            try:
+                logger.info(f"🎯 Сохранение {len(url_data)} записей для URL: {url}")
+                success = await db_manager.save_booking_data(url, url_data)
+                if success:
+                    success_count += len(url_data)
+                    urls_processed.add(url)
+                    logger.info(f"✅ Успешно сохранено {len(url_data)} записей для {url}")
+                else:
+                    logger.error(f"❌ Не удалось сохранить данные для {url}")
+            except Exception as url_error:
+                logger.error(f"❌ Ошибка сохранения URL {url}: {url_error}")
+        
+        # Обновляем статистику
+        parse_results["total_extracted"] += success_count
+        parse_results["last_data"] = data  # Сохраняем для API
         parse_results["last_save_time"] = datetime.now().isoformat()
+        parse_results["urls_saved"] = list(urls_processed)
+        parse_results["supabase_active"] = True
         
-        logger.info(f"✅ Успешно сохранено {len(data)} записей")
-        return True
+        if success_count > 0:
+            logger.info(f"🎉 УСПЕХ! Сохранено {success_count} записей в Supabase для {len(urls_processed)} URL")
+            return True
+        else:
+            logger.error(f"❌ Не удалось сохранить ни одной записи")
+            return False
         
     except Exception as e:
-        logger.error(f"❌ Ошибка сохранения в БД: {e}")
+        logger.error(f"❌ КРИТИЧЕСКАЯ ошибка сохранения в Supabase: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 async def run_parser():
@@ -300,11 +367,13 @@ def read_root():
         <li>Выполняется сейчас: {'Да' if parsing_active else 'Нет'}</li>
     </ul>
     
-    <h3>🗄️ База данных</h3>
+    <h3>🗄️ База данных (SUPABASE INTEGRATION)</h3>
     <ul>
-        <li>Подключение: ✅ Готово</li>
-        <li>Таблицы: ✅ Инициализированы</li>
+        <li>Подключение: {'✅ Активно' if parse_results.get('supabase_active') else '⚠️ Не подключено'}</li>
+        <li>DatabaseManager: {'✅ Доступен' if SUPABASE_INTEGRATION_AVAILABLE else '❌ Недоступен'}</li>
+        <li>Таблицы: ✅ Созданы вручную Pavel</li>
         <li>Последнее сохранение: {parse_results.get('last_save_time', 'Нет')}</li>
+        <li>URL сохранены: {len(parse_results.get('urls_saved', []))}</li>
     </ul>
     
     <h3>⚙️ Настройки</h3>
@@ -343,8 +412,11 @@ def health_check():
             "urls_configured": len([url for url in PARSE_URLS.split(",") if url.strip()]) if PARSE_URLS else 0
         },
         "database": {
-            "connected": True,
-            "last_save": parse_results.get("last_save_time")
+            "connected": parse_results.get("supabase_active", False),
+            "type": "SUPABASE",
+            "manager_available": SUPABASE_INTEGRATION_AVAILABLE,
+            "last_save": parse_results.get("last_save_time"),
+            "urls_saved": parse_results.get("urls_saved", [])
         },
         "production_ready": True,
         "browser_dependencies": False
