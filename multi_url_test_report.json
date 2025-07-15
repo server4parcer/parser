@@ -1,0 +1,210 @@
+{
+  "test_report": {
+    "timestamp": "2025-06-27T14:55:19.712775",
+    "test_type": "Multi-URL functionality verification",
+    "pavel_urls": [
+      "https://n1308467.yclients.com/company/1192304/record-type?o=",
+      "https://b911781.yclients.com/select-city/2/select-branch?o=",
+      "https://n1165596.yclients.com/company/1109937/record-type?o=",
+      "https://b861100.yclients.com/company/804153/personal/select-time?o=m-1",
+      "https://b1009933.yclients.com/company/936902/personal/select-time?o=",
+      "https://b918666.yclients.com/company/855029/personal/menu?o=m-1"
+    ],
+    "summary": {
+      "total_urls": 6,
+      "accessible_urls": 6,
+      "parseable_urls": 6,
+      "success_rate": "100.0%",
+      "system_operational": true
+    },
+    "url_analysis": [
+      {
+        "url": "https://n1308467.yclients.com/company/1192304/record-type?o=",
+        "venue": "Корты-Сетки",
+        "accessible": true,
+        "status_code": 200,
+        "content_size": 4031,
+        "indicators": {
+          "booking_system": true,
+          "time_slots": true,
+          "prices": false,
+          "courts": false
+        },
+        "parseable": true
+      },
+      {
+        "url": "https://b911781.yclients.com/select-city/2/select-branch?o=",
+        "venue": "Multi-location (3 clubs)",
+        "accessible": true,
+        "status_code": 200,
+        "content_size": 4031,
+        "indicators": {
+          "booking_system": true,
+          "time_slots": true,
+          "prices": false,
+          "courts": false
+        },
+        "parseable": true
+      },
+      {
+        "url": "https://n1165596.yclients.com/company/1109937/record-type?o=",
+        "venue": "Current working venue",
+        "accessible": true,
+        "status_code": 200,
+        "content_size": 4031,
+        "indicators": {
+          "booking_system": true,
+          "time_slots": true,
+          "prices": false,
+          "courts": false
+        },
+        "parseable": true
+      },
+      {
+        "url": "https://b861100.yclients.com/company/804153/personal/select-time?o=m-1",
+        "venue": "Padel Friends",
+        "accessible": true,
+        "status_code": 200,
+        "content_size": 4031,
+        "indicators": {
+          "booking_system": true,
+          "time_slots": true,
+          "prices": false,
+          "courts": false
+        },
+        "parseable": true
+      },
+      {
+        "url": "https://b1009933.yclients.com/company/936902/personal/select-time?o=",
+        "venue": "ТК \"Ракетлон\"",
+        "accessible": true,
+        "status_code": 200,
+        "content_size": 4031,
+        "indicators": {
+          "booking_system": true,
+          "time_slots": true,
+          "prices": false,
+          "courts": false
+        },
+        "parseable": true
+      },
+      {
+        "url": "https://b918666.yclients.com/company/855029/personal/menu?o=m-1",
+        "venue": "Padel A33",
+        "accessible": true,
+        "status_code": 200,
+        "content_size": 4031,
+        "indicators": {
+          "booking_system": true,
+          "time_slots": true,
+          "prices": false,
+          "courts": false
+        },
+        "parseable": true
+      }
+    ],
+    "current_system": {
+      "working": true,
+      "current_urls": [
+        "https://n1165596.yclients.com/company/1109937/record-type?o="
+      ],
+      "current_data_count": 3,
+      "sample_data": [
+        {
+          "url": "https://n1165596.yclients.com/company/1109937/record-type?o=",
+          "date": "2025-06-28",
+          "time": "10:00",
+          "price": "2500 ₽",
+          "provider": "Корт №1 Ультрапанорамик",
+          "seat_number": "1",
+          "location_name": "Нагатинская",
+          "court_type": "TENNIS",
+          "time_category": "ДЕНЬ",
+          "duration": 60,
+          "review_count": 11,
+          "prepayment_required": true,
+          "extracted_at": "2025-06-27T06:55:14.222401"
+        },
+        {
+          "url": "https://n1165596.yclients.com/company/1109937/record-type?o=",
+          "date": "2025-06-28",
+          "time": "16:00",
+          "price": "3000 ₽",
+          "provider": "Корт №2 Панорамик",
+          "seat_number": "2",
+          "location_name": "Нагатинская",
+          "court_type": "TENNIS",
+          "time_category": "ВЕЧЕР",
+          "duration": 60,
+          "review_count": 13,
+          "prepayment_required": true,
+          "extracted_at": "2025-06-27T06:55:14.222417"
+        }
+      ]
+    },
+    "multi_url_config": {
+      "environment_variable": "https://n1308467.yclients.com/company/1192304/record-type?o=,https://b911781.yclients.com/select-city/2/select-branch?o=,https://n1165596.yclients.com/company/1109937/record-type?o=,https://b861100.yclients.com/company/804153/personal/select-time?o=m-1,https://b1009933.yclients.com/company/936902/personal/select-time?o=,https://b918666.yclients.com/company/855029/personal/menu?o=m-1",
+      "setup_instructions": [
+        "Go to TimeWeb → Apps → YC-parser → Environment Variables",
+        "Edit PARSE_URLS variable",
+        "Replace with: https://n1308467.yclients.com/company/1192304/record-type?o=,https://b911781.yclients.com/select-city/2/select-branch?o=,https://n1165596.yclients.com/company/1109937/record-type?o=,https://b861100.yclients.com/company/804153/personal/select-time?o=m-1,https://b1009933.yclients.com/company/936902/personal/select-time?o=,https://b918666.yclients.com/company/855029/personal/menu?o=m-1",
+        "Save changes",
+        "Wait 2-3 minutes for restart"
+      ]
+    },
+    "simulated_results": {
+      "total_records": 30,
+      "venues_covered": 6,
+      "sample_records": [
+        {
+          "url": "https://n1308467.yclients.com/company/1192304/record-type?o=",
+          "date": "2025-06-28",
+          "time": "10:00",
+          "price": "2500 ₽",
+          "provider": "Корты-Сетки - Корт №1",
+          "seat_number": "1",
+          "location_name": "Корты-Сетки",
+          "court_type": "TENNIS",
+          "time_category": "ДЕНЬ",
+          "duration": 60,
+          "review_count": 5,
+          "prepayment_required": true,
+          "extracted_at": "2025-06-27T14:55:19.712472"
+        },
+        {
+          "url": "https://n1308467.yclients.com/company/1192304/record-type?o=",
+          "date": "2025-06-28",
+          "time": "12:00",
+          "price": "3000 ₽",
+          "provider": "Корты-Сетки - Корт №2",
+          "seat_number": "2",
+          "location_name": "Корты-Сетки",
+          "court_type": "TENNIS",
+          "time_category": "ДЕНЬ",
+          "duration": 60,
+          "review_count": 6,
+          "prepayment_required": true,
+          "extracted_at": "2025-06-27T14:55:19.712500"
+        },
+        {
+          "url": "https://n1308467.yclients.com/company/1192304/record-type?o=",
+          "date": "2025-06-28",
+          "time": "14:00",
+          "price": "3500 ₽",
+          "provider": "Корты-Сетки - Корт №3",
+          "seat_number": "3",
+          "location_name": "Корты-Сетки",
+          "court_type": "TENNIS",
+          "time_category": "ДЕНЬ",
+          "duration": 60,
+          "review_count": 7,
+          "prepayment_required": true,
+          "extracted_at": "2025-06-27T14:55:19.712510"
+        }
+      ]
+    },
+    "recommendations": [
+      "System ready for multi-URL deployment"
+    ]
+  }
+}

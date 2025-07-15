@@ -1,0 +1,111 @@
+{
+  "demo_report": {
+    "timestamp": "2025-06-27T14:46:06.316091",
+    "test_summary": {
+      "total_tests": 5,
+      "passed": 5,
+      "failed": 0,
+      "success_rate": "100.0%"
+    },
+    "system_status": {
+      "version": "4.1.0",
+      "production_ready": true,
+      "parsing_method": "requests + BeautifulSoup",
+      "browser_dependencies": false
+    },
+    "parser_info": {
+      "urls_configured": 1,
+      "total_extracted": 6,
+      "last_run": "2025-06-27T06:45:55.774156"
+    },
+    "sample_data": [
+      {
+        "url": "https://n1165596.yclients.com/company/1109937/record-type?o=",
+        "date": "2025-06-28",
+        "time": "10:00",
+        "price": "2500 ₽",
+        "provider": "Корт №1 Ультрапанорамик",
+        "seat_number": "1",
+        "location_name": "Нагатинская",
+        "court_type": "TENNIS",
+        "time_category": "ДЕНЬ",
+        "duration": 60,
+        "review_count": 11,
+        "prepayment_required": true,
+        "extracted_at": "2025-06-27T06:45:55.949937"
+      },
+      {
+        "url": "https://n1165596.yclients.com/company/1109937/record-type?o=",
+        "date": "2025-06-28",
+        "time": "16:00",
+        "price": "3000 ₽",
+        "provider": "Корт №2 Панорамик",
+        "seat_number": "2",
+        "location_name": "Нагатинская",
+        "court_type": "TENNIS",
+        "time_category": "ВЕЧЕР",
+        "duration": 60,
+        "review_count": 13,
+        "prepayment_required": true,
+        "extracted_at": "2025-06-27T06:45:55.949972"
+      },
+      {
+        "url": "https://n1165596.yclients.com/company/1109937/record-type?o=",
+        "date": "2025-06-29",
+        "time": "12:00",
+        "price": "2800 ₽",
+        "provider": "Корт №3 Панорамик",
+        "seat_number": "3",
+        "location_name": "Нагатинская",
+        "court_type": "TENNIS",
+        "time_category": "ДЕНЬ",
+        "duration": 60,
+        "review_count": 8,
+        "prepayment_required": true,
+        "extracted_at": "2025-06-27T06:45:55.949975"
+      }
+    ],
+    "test_details": [
+      {
+        "name": "System Health",
+        "status": "PASS",
+        "details": "Version: 4.1.0, Production: True, Method: requests + BeautifulSoup, Browser Deps: False",
+        "expected": "",
+        "actual": "",
+        "timestamp": "2025-06-27T14:45:50.624841"
+      },
+      {
+        "name": "API Endpoints",
+        "status": "PASS",
+        "details": "Main Dashboard: ✅; Parser Status: ✅; Booking Data: ✅; URL Configuration: ✅; API Documentation: ✅",
+        "expected": "",
+        "actual": "",
+        "timestamp": "2025-06-27T14:45:54.708071"
+      },
+      {
+        "name": "Parser Functionality",
+        "status": "PASS",
+        "details": "Extracted: 3 records, Available: 3 records",
+        "expected": "",
+        "actual": "",
+        "timestamp": "2025-06-27T14:46:01.494582"
+      },
+      {
+        "name": "Data Quality",
+        "status": "PASS",
+        "details": "Sample: 2025-06-28 10:00, 2500 ₽, Корт №1 Ультрапанорамик",
+        "expected": "",
+        "actual": "",
+        "timestamp": "2025-06-27T14:46:02.280619"
+      },
+      {
+        "name": "Configuration",
+        "status": "PASS",
+        "details": "URLs: 1, Ready: True",
+        "expected": "",
+        "actual": "",
+        "timestamp": "2025-06-27T14:46:03.900423"
+      }
+    ]
+  }
+}

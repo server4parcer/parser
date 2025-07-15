@@ -1,0 +1,28 @@
+{
+  "verification_report": {
+    "timestamp": "2025-06-27T14:59:20.325879",
+    "overall_success": false,
+    "configuration": {
+      "urls_configured": 1,
+      "expected_urls": 6,
+      "status": "failed"
+    },
+    "parsing": {
+      "records_extracted": 3,
+      "status": "failed"
+    },
+    "data_quality": {
+      "venues_covered": 1,
+      "total_records": 3,
+      "status": "failed"
+    },
+    "configured_urls": [
+      "https://n1165596.yclients.com/company/1109937/record-type?o="
+    ],
+    "recommendations": [
+      "Update TimeWeb PARSE_URLS environment variable with all 6 URLs",
+      "Wait for parser to process all URLs, then test again",
+      "Verify URLs are accessible and parser logic handles different venue formats"
+    ]
+  }
+}
