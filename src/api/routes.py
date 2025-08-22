@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, HttpUrl, Field
 
-from config.settings import API_KEY
+from settings import API_KEY
 from src.api.auth import get_api_key
 from src.database.db_manager import DatabaseManager
 from src.parser.yclients_parser import YClientsParser

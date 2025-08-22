@@ -5,7 +5,7 @@ Database Queries - SQL-запросы для парсера YCLIENTS с подд
 """
 from typing import Dict, List, Optional, Any, Tuple
 
-from config.settings import BOOKING_TABLE, URL_TABLE
+from settings import BOOKING_TABLE, URL_TABLE
 
 
 # Запросы для таблицы URL

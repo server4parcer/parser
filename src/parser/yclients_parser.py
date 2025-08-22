@@ -15,7 +15,7 @@ from src.browser.proxy_manager import ProxyManager
 from src.database.db_manager import DatabaseManager
 from src.parser.production_data_extractor import ProductionDataExtractor
 from src.parser.yclients_real_selectors import YCLIENTS_REAL_SELECTORS
-from config.settings import PARSE_INTERVAL, MAX_RETRIES, TIMEOUT, USER_AGENTS, PAGE_LOAD_TIMEOUT
+from settings import PARSE_INTERVAL, MAX_RETRIES, TIMEOUT, USER_AGENTS, PAGE_LOAD_TIMEOUT
 
 
 logger = logging.getLogger(__name__)

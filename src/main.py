@@ -18,20 +18,29 @@ sys.path.insert(0, current_dir)
 
 # Безопасные импорты с fallback
 try:
-    from config.logging_config import setup_logging
+    from logging_config import setup_logging
 except ImportError:
-    # Fallback настройка логирования
-    def setup_logging():
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+    try:
+        from config.logging_config import setup_logging
+    except ImportError:
+        # Fallback настройка логирования
+        def setup_logging():
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
 
 try:
-    from config.settings import (
+    from settings import (
         API_HOST, API_PORT, API_DEBUG, 
         DEFAULT_URLS, PARSE_INTERVAL
     )
+except ImportError:
+    try:
+        from config.settings import (
+            API_HOST, API_PORT, API_DEBUG, 
+            DEFAULT_URLS, PARSE_INTERVAL
+        )
 except ImportError:
     # Fallback настройки
     API_HOST = os.environ.get("API_HOST", "0.0.0.0")

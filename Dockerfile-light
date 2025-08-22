@@ -1,0 +1,39 @@
+# Lightweight Dockerfile для TimeWeb (БЕЗ Playwright/Chromium)
+FROM python:3.10-slim
+
+# Рабочая директория
+WORKDIR /app
+
+# Переменные окружения
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+# Установка ТОЛЬКО необходимых системных пакетов
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копирование requirements для легковесной версии
+COPY requirements-light.txt .
+
+# Установка Python зависимостей (БЕЗ Playwright)
+RUN pip install --no-cache-dir -r requirements-light.txt
+
+# Копирование исходного кода
+COPY . .
+
+# Создание директорий
+RUN mkdir -p /app/data/export /app/logs
+
+# Порт приложения
+EXPOSE 8000
+
+# Простой healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8000/status || exit 1
+
+# Упрощенный запуск
+ENTRYPOINT ["python", "src/main.py"]
+CMD ["--mode", "api"]
