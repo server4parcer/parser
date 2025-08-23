@@ -267,6 +267,49 @@ def get_booking_data():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/debug/supabase")
+def debug_supabase():
+    """Debug Supabase connection and table status"""
+    if not supabase:
+        return {"error": "Supabase not initialized"}
+    
+    debug_info = {"tests": []}
+    
+    # Test 1: List tables
+    try:
+        result = supabase.table('booking_data').select("*").limit(1).execute()
+        debug_info["tests"].append({
+            "test": "table_exists", 
+            "status": "success",
+            "existing_records": len(result.data)
+        })
+    except Exception as e:
+        debug_info["tests"].append({
+            "test": "table_exists",
+            "status": "failed", 
+            "error": str(e)
+        })
+    
+    # Test 2: Try simple insert
+    try:
+        test_data = {"venue_name": "DEBUG_TEST", "date": "2025-08-23", "time": "12:00"}
+        result = supabase.table('booking_data').insert([test_data]).execute()
+        debug_info["tests"].append({
+            "test": "simple_insert",
+            "status": "success",
+            "inserted": len(result.data) if result.data else 0
+        })
+    except Exception as e:
+        debug_info["tests"].append({
+            "test": "simple_insert", 
+            "status": "failed",
+            "error": str(e),
+            "error_type": str(type(e))
+        })
+    
+    return debug_info
+
 if __name__ == "__main__":
     print("✅ Starting REAL YClients parser...")
+    print(f"🔧 Debug endpoint: /debug/supabase")
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
