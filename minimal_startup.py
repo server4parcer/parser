@@ -22,9 +22,11 @@ def health():
 @app.get("/parser/status")
 def parser_status():
     return {
-        "status": "готов к работе",
+        "status": "ready_to_work",
+        "status_ru": "готов к работе", 
         "mode": "minimal",
-        "last_run": "не запускался", 
+        "last_run": "never_started",
+        "last_run_ru": "не запускался",
         "urls_configured": len(os.environ.get("PARSE_URLS", "").split(","))
     }
 
