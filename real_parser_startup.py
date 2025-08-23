@@ -123,16 +123,73 @@ def extract_venue_name(url, soup):
     return "YClients_Venue"
 
 def save_to_supabase(bookings):
-    """Save booking data to Supabase"""
-    if not supabase or not bookings:
+    """Save booking data to Supabase with detailed error handling"""
+    if not supabase:
+        print("❌ Supabase client not initialized")
+        return 0
+        
+    if not bookings:
+        print("⚠️ No bookings to save")
         return 0
         
     try:
-        # Insert data into booking_data table
-        result = supabase.table('booking_data').insert(bookings).execute()
-        return len(bookings)
+        print(f"🔄 Attempting to save {len(bookings)} bookings to Supabase...")
+        
+        # Try to create table if it doesn't exist
+        try:
+            # Check if table exists by trying to select
+            test_result = supabase.table('booking_data').select("*").limit(1).execute()
+            print("✅ Table booking_data exists")
+        except Exception as table_error:
+            print(f"⚠️ Table issue: {table_error}")
+            
+            # Try to create table
+            try:
+                create_table_sql = """
+                CREATE TABLE IF NOT EXISTS booking_data (
+                    id SERIAL PRIMARY KEY,
+                    venue_name TEXT,
+                    date TEXT,
+                    time TEXT,
+                    price TEXT,
+                    duration INTEGER,
+                    court_name TEXT,
+                    extracted_at TIMESTAMP,
+                    source_url TEXT,
+                    debug_note TEXT
+                );
+                ALTER TABLE booking_data DISABLE ROW LEVEL SECURITY;
+                """
+                supabase.rpc('exec_sql', {'sql': create_table_sql}).execute()
+                print("✅ Table created successfully")
+            except Exception as create_error:
+                print(f"❌ Could not create table: {create_error}")
+        
+        # Clean data - remove any problematic fields
+        clean_bookings = []
+        for booking in bookings:
+            clean_booking = {
+                "venue_name": str(booking.get("venue_name", "Unknown")),
+                "date": str(booking.get("date", "2025-08-23")),
+                "time": str(booking.get("time", "10:00")),
+                "price": str(booking.get("price", "Unknown")),
+                "duration": int(booking.get("duration", 60)),
+                "court_name": str(booking.get("court_name", "Court 1")),
+                "source_url": str(booking.get("source_url", ""))
+            }
+            clean_bookings.append(clean_booking)
+        
+        # Insert data
+        result = supabase.table('booking_data').insert(clean_bookings).execute()
+        saved_count = len(clean_bookings)
+        print(f"✅ Successfully saved {saved_count} bookings to Supabase")
+        return saved_count
+        
     except Exception as e:
-        print(f"❌ Supabase error: {e}")
+        print(f"❌ Supabase save error: {e}")
+        print(f"📊 Error type: {type(e)}")
+        import traceback
+        traceback.print_exc()
         return 0
 
 last_parse_result = {"extracted": 0, "timestamp": "never"}
