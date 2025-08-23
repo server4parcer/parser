@@ -31,7 +31,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABAS
 app = FastAPI(title="YClients Parser - Real Data")
 
 def parse_yclients_venue(url):
-    """Extract real booking data from YClients venue page"""
+    """Extract real booking data from YClients venue page with DEBUG"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -41,66 +41,69 @@ def parse_yclients_venue(url):
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
         
+        print(f"📊 Response length: {len(response.text)} chars")
+        
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # DEBUG: Show what we actually got
+        text_content = soup.get_text()[:500]
+        print(f"📝 Page content sample: {text_content}")
         
         # Extract venue name from URL or page
         venue_name = extract_venue_name(url, soup)
+        print(f"🏢 Venue name: {venue_name}")
         
-        # Look for booking elements with real selectors
+        # YClients is JavaScript-heavy - look for ANY text with times/prices
         bookings = []
+        all_text = soup.get_text()
         
-        # Try multiple YClients selectors for time slots
-        time_selectors = [
-            '.time-slot', '.booking-time', '.available-time',
-            '[data-time]', '.schedule-item', '.time-cell'
-        ]
+        # Find time patterns in ANY text
+        time_matches = re.findall(r'\b(\d{1,2}:\d{2})\b', all_text)
+        price_matches = re.findall(r'(\d{1,3}[,\s]?\d{3})\s*[₽руб]', all_text)
         
-        price_selectors = [
-            '.price', '.cost', '[data-price]', '.booking-price'
-        ]
+        print(f"🕐 Found {len(time_matches)} time patterns: {time_matches[:5]}")
+        print(f"💰 Found {len(price_matches)} price patterns: {price_matches[:5]}")
         
-        # Extract times and prices
-        times = []
-        prices = []
-        
-        for selector in time_selectors:
-            elements = soup.select(selector)
-            for el in elements:
-                time_text = el.get_text(strip=True)
-                if re.match(r'\d{1,2}:\d{2}', time_text):
-                    times.append(time_text)
-        
-        for selector in price_selectors:
-            elements = soup.select(selector)
-            for el in elements:
-                price_text = el.get_text(strip=True)
-                if '₽' in price_text or 'руб' in price_text:
-                    # Clean price: "6,000 ₽" -> "6000"
-                    clean_price = re.sub(r'[^\d]', '', price_text)
-                    if clean_price:
-                        prices.append(f"{clean_price} ₽")
-        
-        # Create booking entries
-        for i, time_slot in enumerate(times[:10]):  # Limit to 10 results
-            price = prices[i] if i < len(prices) else "Цена не указана"
-            
+        # Create sample bookings even if empty (for testing)
+        if not time_matches and not price_matches:
+            print("⚠️ No booking data found - creating test entry for debugging")
+            # Create one test booking to verify Supabase connection
             booking = {
                 "venue_name": venue_name,
                 "date": datetime.now().strftime("%Y-%m-%d"),
-                "time": time_slot,
-                "price": price,
-                "duration": 60,  # Default 1 hour
-                "court_name": f"Площадка {i+1}",
+                "time": "10:00",
+                "price": "TEST - No data found",
+                "duration": 60,
+                "court_name": "Debug Entry",
                 "extracted_at": datetime.now().isoformat(),
-                "source_url": url
+                "source_url": url,
+                "debug_note": "JavaScript-heavy page, need browser automation"
             }
             bookings.append(booking)
-            
-        print(f"✅ Extracted {len(bookings)} bookings from {venue_name}")
+        else:
+            # Create real bookings from found data
+            for i, time_slot in enumerate(time_matches[:5]):
+                price = f"{price_matches[i]} ₽" if i < len(price_matches) else "Цена не найдена"
+                
+                booking = {
+                    "venue_name": venue_name,
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "time": time_slot,
+                    "price": price,
+                    "duration": 60,
+                    "court_name": f"Площадка {i+1}",
+                    "extracted_at": datetime.now().isoformat(),
+                    "source_url": url
+                }
+                bookings.append(booking)
+        
+        print(f"✅ Created {len(bookings)} booking entries for {venue_name}")
         return bookings
         
     except Exception as e:
         print(f"❌ Error parsing {url}: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def extract_venue_name(url, soup):
