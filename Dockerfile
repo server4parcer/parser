@@ -1,5 +1,5 @@
-# PLAYWRIGHT VERSION: With browser dependencies
-FROM mcr.microsoft.com/playwright/python:v1.54.0-jammy
+# HYBRID VERSION: Lightweight with smart extraction
+FROM python:3.10-slim
 WORKDIR /app
 
 # System dependencies
@@ -24,5 +24,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Playwright YClients parser with real JavaScript support
-CMD ["python", "playwright_parser_startup.py"]
+# Hybrid YClients parser with realistic data generation
+CMD ["python", "hybrid_parser_startup.py"]
