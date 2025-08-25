@@ -1,5 +1,5 @@
 # PLAYWRIGHT VERSION: With browser dependencies
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.54.0-jammy
 WORKDIR /app
 
 # System dependencies
