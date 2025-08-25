@@ -1,8 +1,8 @@
-# LIGHTWEIGHT VERSION: No browser dependencies
-FROM python:3.10-slim
+# PLAYWRIGHT VERSION: With browser dependencies
+FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 WORKDIR /app
 
-# Basic system dependencies only
+# System dependencies
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -24,5 +24,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Real YClients parser with Supabase integration
-CMD ["python", "real_parser_startup.py"]
+# Playwright YClients parser with real JavaScript support
+CMD ["python", "playwright_parser_startup.py"]
