@@ -300,7 +300,37 @@ def debug_supabase():
     
     return {"tests": tests}
 
+# Automatic parsing task
+async def automatic_parsing_task():
+    """Run parsing automatically every 10 minutes"""
+    while True:
+        try:
+            await asyncio.sleep(600)  # 10 minutes
+            print("🔄 Automatic parsing started...")
+            
+            # Run the same logic as parser_run endpoint
+            if supabase and PARSE_URLS:
+                all_bookings = []
+                active_urls = [url.strip() for url in PARSE_URLS if url.strip()]
+                
+                for url in active_urls:
+                    venue_bookings = parse_yclients_venue(url)
+                    all_bookings.extend(venue_bookings)
+                
+                saved_count = save_to_supabase(all_bookings)
+                print(f"✅ Auto-parse: {len(all_bookings)} extracted, {saved_count} saved")
+            
+        except Exception as e:
+            print(f"❌ Auto-parse error: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    """Start automatic parsing when app starts"""
+    print("🚀 Starting automatic parsing task...")
+    asyncio.create_task(automatic_parsing_task())
+
 if __name__ == "__main__":
-    print("🔧 Starting Hybrid YClients Parser...")
+    print("🔧 Starting Hybrid YClients Parser with automatic scheduling...")
     print(f"🌐 Server: {API_HOST}:{API_PORT}")
+    print("⏰ Automatic parsing every 10 minutes")
     uvicorn.run(app, host=API_HOST, port=API_PORT)
