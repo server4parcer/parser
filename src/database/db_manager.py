@@ -429,6 +429,61 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ Ошибка закрытия соединения: {str(e)}")
     
+    @property
+    def pool(self):
+        """PostgreSQL compatibility layer for API routes"""
+        return self
+    
+    async def acquire(self):
+        """Fake connection context for PostgreSQL compatibility"""
+        return self
+    
+    async def fetchval(self, query: str, *args) -> Any:
+        """PostgreSQL compatibility: fetch single value"""
+        try:
+            if "urls" in query.lower() and "id" in query.lower():
+                response = self.supabase.table(self.url_table).select("url").eq("id", args[0]).execute()
+                return response.data[0]["url"] if response.data else None
+            return None
+        except Exception:
+            return None
+    
+    async def fetch(self, query: str, *args) -> List[Dict]:
+        """PostgreSQL compatibility: fetch multiple rows"""
+        try:
+            if "urls" in query.lower():
+                response = self.supabase.table(self.url_table).select("url").execute()
+                return [{"url": row["url"]} for row in response.data] if response.data else []
+            return []
+        except Exception:
+            return []
+    
+    async def __aenter__(self):
+        """Context manager entry"""
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        pass
+    
+    async def get_statistics(self) -> Dict[str, Any]:
+        """Get database statistics for status endpoint"""
+        try:
+            if not self.is_initialized:
+                return {"error": "Database not initialized"}
+            
+            booking_count = self.supabase.table(self.booking_table).select("id", count="exact").execute()
+            url_count = self.supabase.table(self.url_table).select("id", count="exact").execute()
+            
+            return {
+                "booking_records": booking_count.count if booking_count else 0,
+                "url_records": url_count.count if url_count else 0,
+                "database_type": "supabase",
+                "connected": True
+            }
+        except Exception as e:
+            return {"error": str(e), "connected": False}
+    
     def create_admin_client(self):
         """Create Supabase client with admin-level configuration"""
         try:
