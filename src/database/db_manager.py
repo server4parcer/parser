@@ -67,33 +67,33 @@ class DatabaseManager:
             
             if not permissions_fixed:
                 # АГРЕССИВНЫЙ ФИКС - Force disable RLS using multiple nuclear methods
-                logger.warning("⚠️ Standard permissions fix failed - LAUNCHING NUCLEAR OPTIONS!")
+                logger.warning("Ошибка стандартного исправления прав - применяем принудительные методы")
                 
                 # Nuclear Method 1: Direct PostgreSQL connection to disable RLS
-                logger.info("💥 NUCLEAR METHOD 1: Direct PostgreSQL RLS disable...")
+                logger.info("Метод 1: Прямое отключение RLS PostgreSQL")
                 nuclear_rls_success = await self.force_disable_rls()
                 
                 if nuclear_rls_success:
-                    logger.info("✅ NUCLEAR SUCCESS: RLS disabled via direct PostgreSQL")
+                    logger.info("RLS отключен через прямое подключение PostgreSQL")
                     # Test if the nuclear fix worked
                     nuclear_test_success = await self.test_aggressive_save()
                     if nuclear_test_success:
-                        logger.info("🎉 NUCLEAR FIX CONFIRMED: Saves now working!")
+                        logger.info("Исправление подтверждено: сохранение работает")
                         permissions_fixed = True
                     else:
                         logger.warning("⚠️ Nuclear RLS disable succeeded but saves still failing")
                 
                 # Ultimate Nuclear Method 2: Recreate tables if RLS disable failed
                 if not permissions_fixed:
-                    logger.warning("💀 ULTIMATE NUCLEAR METHOD 2: Recreating tables with no restrictions...")
+                    logger.warning("Метод 2: Пересоздание таблиц без ограничений")
                     ultimate_success = await self.create_tables_with_no_rls()
                     
                     if ultimate_success:
-                        logger.info("☢️ ULTIMATE NUCLEAR SUCCESS: Tables recreated with no RLS")
+                        logger.info("Таблицы пересозданы без RLS")
                         # Test if the ultimate fix worked
                         ultimate_test_success = await self.test_aggressive_save()
                         if ultimate_test_success:
-                            logger.info("🎉 ULTIMATE NUCLEAR FIX CONFIRMED: Saves now working!")
+                            logger.info("Пересоздание таблиц подтверждено: сохранение работает")
                             permissions_fixed = True
                         else:
                             logger.error("💀 Even ultimate nuclear option failed - check service_role privileges")
@@ -103,7 +103,7 @@ class DatabaseManager:
             if permissions_fixed:
                 logger.info("✅ Table permissions verified/fixed (via nuclear methods if needed)")
             else:
-                logger.error("💥 ALL NUCLEAR OPTIONS FAILED - database saves will not work")
+                logger.error("Принудительные методы не сработали - сохранение в базу не работает")
                 logger.error("🔑 Check service_role key has PostgreSQL admin privileges")
             
         except Exception as e:
@@ -193,7 +193,7 @@ class DatabaseManager:
                         logger.info(f"✅ Вставлен батч {i//batch_size + 1}: {len(response.data)} записей")
                     
                 except Exception as e:
-                    # ENHANCED ERROR LOGGING - Capture detailed Supabase error information
+                    # Расширенное логирование ошибок
                     error_details = {
                         "error_type": type(e).__name__,
                         "error_message": str(e),
@@ -204,7 +204,7 @@ class DatabaseManager:
                         "batch_size": len(batch),
                         "table": self.booking_table
                     }
-                    logger.error(f"🔍 DETAILED BATCH ERROR: {json.dumps(error_details, indent=2)}")
+                    logger.error(f"Ошибка пакетного сохранения: {json.dumps(error_details, indent=2)}")
                     
                     # Check for specific error patterns
                     error_message = str(e).lower()
@@ -229,13 +229,13 @@ class DatabaseManager:
                                 "record_keys": list(record.keys()),
                                 "table": self.booking_table
                             }
-                            logger.error(f"🔍 SINGLE RECORD ERROR: {json.dumps(single_error_details, indent=2)}")
+                            logger.error(f"Ошибка одиночной записи: {json.dumps(single_error_details, indent=2)}")
             
             logger.info(f"✅ Всего сохранено: {total_inserted} из {len(data)} записей")
             return total_inserted > 0
             
         except Exception as e:
-            # ENHANCED MAIN ERROR LOGGING - Capture detailed Supabase error information
+            # Основное логирование ошибок
             error_details = {
                 "error_type": type(e).__name__,
                 "error_message": str(e),
@@ -246,7 +246,7 @@ class DatabaseManager:
                 "records_count": len(data),
                 "table": self.booking_table
             }
-            logger.error(f"🔍 DETAILED SAVE ERROR: {json.dumps(error_details, indent=2)}")
+            logger.error(f"Ошибка сохранения: {json.dumps(error_details, indent=2)}")
             
             # Check for specific error types and try fallback solutions
             error_message = str(e).lower()
@@ -429,42 +429,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ Ошибка закрытия соединения: {str(e)}")
     
-    @property
-    def pool(self):
-        """PostgreSQL compatibility layer for API routes"""
-        return self
-    
-    async def acquire(self):
-        """Fake connection context for PostgreSQL compatibility"""
-        return self
-    
-    async def fetchval(self, query: str, *args) -> Any:
-        """PostgreSQL compatibility: fetch single value"""
-        try:
-            if "urls" in query.lower() and "id" in query.lower():
-                response = self.supabase.table(self.url_table).select("url").eq("id", args[0]).execute()
-                return response.data[0]["url"] if response.data else None
-            return None
-        except Exception:
-            return None
-    
-    async def fetch(self, query: str, *args) -> List[Dict]:
-        """PostgreSQL compatibility: fetch multiple rows"""
-        try:
-            if "urls" in query.lower():
-                response = self.supabase.table(self.url_table).select("url").execute()
-                return [{"url": row["url"]} for row in response.data] if response.data else []
-            return []
-        except Exception:
-            return []
-    
-    async def __aenter__(self):
-        """Context manager entry"""
-        return self
-        
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit"""
-        pass
     
     async def get_statistics(self) -> Dict[str, Any]:
         """Get database statistics for status endpoint"""
@@ -588,7 +552,7 @@ class DatabaseManager:
             return False
     
     async def connect_direct_postgres(self):
-        """Direct PostgreSQL connection bypassing Supabase REST API - NUCLEAR OPTION"""
+        """Прямое подключение PostgreSQL в обход Supabase REST API"""
         try:
             import asyncpg
             import re
@@ -602,7 +566,7 @@ class DatabaseManager:
                 
             project_id = project_match.group(1)
             
-            logger.info(f"🔧 NUCLEAR: Attempting direct PostgreSQL connection to {project_id}")
+            logger.info(f"Попытка прямого подключения PostgreSQL к {project_id}")
             
             # Standard Supabase PostgreSQL connection
             connection = await asyncpg.connect(
@@ -614,20 +578,20 @@ class DatabaseManager:
                 ssl="require"
             )
             
-            logger.info("✅ NUCLEAR: Direct PostgreSQL connection established")
+            logger.info("Прямое подключение PostgreSQL установлено")
             return connection
             
         except ImportError:
             logger.error("❌ asyncpg not available - cannot use direct PostgreSQL connection")
             return None
         except Exception as e:
-            logger.error(f"❌ NUCLEAR: Direct PostgreSQL connection failed: {e}")
+            logger.error(f"Ошибка прямого подключения PostgreSQL: {e}")
             return None
     
     async def force_disable_rls(self):
-        """Forcefully disable RLS using direct PostgreSQL connection - NUCLEAR OPTION"""
+        """Принудительное отключение RLS через прямое подключение PostgreSQL"""
         try:
-            logger.info("💥 NUCLEAR OPTION: Force disabling RLS via direct PostgreSQL")
+            logger.info("Принудительное отключение RLS через прямое подключение PostgreSQL")
             
             connection = await self.connect_direct_postgres()
             if not connection:
@@ -654,30 +618,30 @@ class DatabaseManager:
                 await connection.execute("GRANT ALL ON booking_data TO anon;")
                 await connection.execute("GRANT ALL ON urls TO anon;")
                 
-                logger.info("✅ NUCLEAR SUCCESS: RLS disabled via direct PostgreSQL connection")
+                logger.info("RLS отключен через прямое подключение PostgreSQL")
                 return True
                 
             except Exception as e:
-                logger.error(f"❌ NUCLEAR: Direct RLS disable failed: {e}")
+                logger.error(f"Ошибка прямого отключения RLS: {e}")
                 return False
             finally:
                 await connection.close()
                 
         except Exception as e:
-            logger.error(f"❌ NUCLEAR: Force disable RLS method failed: {e}")
+            logger.error(f"Ошибка метода принудительного отключения RLS: {e}")
             return False
     
     async def create_tables_with_no_rls(self):
-        """Create tables from scratch with proper permissions - ULTIMATE NUCLEAR OPTION"""
+        """Создание таблиц с нуля с правильными правами"""
         try:
-            logger.info("☢️ ULTIMATE NUCLEAR: Recreating tables with no RLS restrictions")
+            logger.info("Пересоздание таблиц без ограничений RLS")
             
             connection = await self.connect_direct_postgres()
             if not connection:
                 return False
             
             try:
-                # ULTIMATE NUCLEAR: Drop and recreate tables
+                # Пересоздание таблиц
                 create_sql = """
                 -- Drop existing tables if they have wrong permissions
                 DROP TABLE IF EXISTS booking_data CASCADE;
@@ -730,19 +694,19 @@ class DatabaseManager:
                 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
                 """
                 
-                logger.info("☢️ Executing ULTIMATE NUCLEAR table recreation...")
+                logger.info("Выполнение пересоздания таблиц...")
                 await connection.execute(create_sql)
-                logger.info("✅ ULTIMATE NUCLEAR SUCCESS: Tables created with no RLS restrictions")
+                logger.info("Таблицы созданы без ограничений RLS")
                 return True
                 
             except Exception as e:
-                logger.error(f"❌ ULTIMATE NUCLEAR: Table creation failed: {e}")
+                logger.error(f"Ошибка создания таблиц: {e}")
                 return False
             finally:
                 await connection.close()
                 
         except Exception as e:
-            logger.error(f"❌ ULTIMATE NUCLEAR: Create tables method failed: {e}")
+            logger.error(f"Ошибка метода создания таблиц: {e}")
             return False
     
     async def test_aggressive_save(self):
@@ -776,13 +740,13 @@ class DatabaseManager:
                 await asyncio.sleep(1)  # Give it a moment
                 delete_result = self.supabase.table(self.booking_table).delete().eq('url', 'aggressive_test').execute()
                 
-                logger.info("✅ AGGRESSIVE FIX TEST PASSED - saves working!")
+                logger.info("Тест сохранения пройден - сохранение работает")
                 return True
             else:
-                logger.error("❌ AGGRESSIVE FIX TEST FAILED - saves still not working")
+                logger.error("Тест сохранения не пройден - сохранение не работает")
                 logger.error(f"Result data: {result.data}")
                 return False
                 
         except Exception as e:
-            logger.error(f"❌ AGGRESSIVE FIX TEST ERROR: {e}")
+            logger.error(f"Ошибка теста сохранения: {e}")
             return False
