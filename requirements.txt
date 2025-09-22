@@ -1,6 +1,5 @@
-# YClients Parser - Lightweight requirements (no browser dependencies)
+# YClients Parser - Full Playwright browser automation for 16GB TimeWeb
 python-dotenv>=1.0.0
-asyncio>=3.4.3
 aiohttp>=3.8.4
 requests>=2.31.0
 beautifulsoup4>=4.12.0
@@ -11,3 +10,4 @@ uvicorn>=0.23.0
 pydantic>=2.0.0
 ujson>=5.8.0
 asyncpg>=0.27.0
+playwright>=1.54.0
