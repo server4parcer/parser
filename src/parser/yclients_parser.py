@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, TimeoutError
+import re
 
 from src.browser.browser_manager import BrowserManager
 from src.browser.proxy_manager import ProxyManager
@@ -246,6 +247,185 @@ class YClientsParser:
             logger.error(f"Ошибка при проверке антибот-защиты: {str(e)}")
             return False
 
+    async def navigate_yclients_flow(self, page: Page, url: str) -> List[Dict]:
+        """
+        Navigate through YClients 4-step booking flow.
+        Step 1: Service selection (record-type)
+        Step 2: Court selection (select-master)
+        Step 3: Date/time selection (select-time)
+        Step 4: Service packages with prices (select-services)
+        """
+        results = []
+        
+        try:
+            # Step 1: Load and select service type
+            await page.goto(url, wait_until='networkidle')
+            await page.wait_for_selector('ui-kit-simple-cell', timeout=10000)
+            
+            # Click on "Индивидуальные услуги" or first available service
+            service_links = await page.get_by_role('link').all()
+            for link in service_links:
+                text = await link.text_content()
+                if 'Индивидуальные' in text or 'услуги' in text.lower():
+                    await link.click()
+                    break
+            
+            # Step 2: Select courts
+            await page.wait_for_url('**/personal/select-master**')
+            await page.wait_for_selector('ui-kit-simple-cell')
+            
+            courts = await page.locator('ui-kit-simple-cell').all()
+            for court in courts[:3]:  # Limit to first 3 courts for testing
+                court_name = await court.locator('ui-kit-headline').text_content()
+                await court.click()
+                
+                # Continue to date selection
+                continue_btn = page.get_by_role('button', { 'name': 'Продолжить' })
+                if await continue_btn.is_visible():
+                    await continue_btn.click()
+                
+                # Step 3: Select dates and times
+                await page.wait_for_url('**/personal/select-time**')
+                await self.extract_time_slots_with_prices(page, court_name, results)
+                
+                # Go back to court selection
+                await page.go_back()
+                await page.wait_for_selector('ui-kit-simple-cell')
+        
+        except Exception as e:
+            logger.error(f"Error in 4-step navigation: {str(e)}")
+        
+        return results
+
+    async def extract_time_slots_with_prices(self, page: Page, court_name: str, results: List[Dict]):
+        """Extract time slots and navigate to get prices."""
+        
+        try:
+            # Get available dates
+            dates = await page.locator('.calendar-day:not(.disabled)').all()
+            
+            for date in dates[:2]:  # Limit to 2 dates for testing
+                date_text = await date.text_content()
+                await date.click()
+                await page.wait_for_timeout(1000)
+                
+                # Get time slots
+                time_slots = await page.locator('[data-time]').all()
+                if not time_slots:
+                    # Try alternative selector
+                    time_slots = await page.get_by_text(re.compile(r'\d{1,2}:\d{2}')).all()
+                
+                for slot in time_slots[:3]:  # Limit to 3 slots per date
+                    time_text = await slot.text_content()
+                    await slot.click()
+                    
+                    # Continue to services/prices
+                    continue_btn = page.get_by_role('button', { 'name': 'Продолжить' })
+                    if await continue_btn.is_visible():
+                        await continue_btn.click()
+                        
+                        # Step 4: Extract prices from service packages
+                        await page.wait_for_url('**/personal/select-services**')
+                        await page.wait_for_selector('ui-kit-simple-cell')
+                        
+                        services = await page.locator('ui-kit-simple-cell').all()
+                        for service in services:
+                            try:
+                                name = await service.locator('ui-kit-headline').text_content()
+                                price = await service.locator('ui-kit-title').text_content()
+                                duration = await service.locator('ui-kit-body').text_content()
+                                
+                                # Clean and structure data
+                                result = {
+                                    'url': page.url,
+                                    'court_name': court_name.strip() if court_name else '',
+                                    'date': self.parse_date(date_text),
+                                    'time': time_text.strip() if time_text else '',
+                                    'service_name': name.strip() if name else '',
+                                    'price': self.clean_price(price),
+                                    'duration': self.parse_duration(duration),
+                                    'venue_name': self.extract_venue_name(page.url),
+                                    'extracted_at': datetime.now().isoformat()
+                                }
+                                results.append(result)
+                            except Exception as e:
+                                logger.warning(f"Failed to extract service: {e}")
+                        
+                        # Go back to time selection
+                        await page.go_back()
+                        await page.wait_for_timeout(1000)
+        except Exception as e:
+            logger.error(f"Error extracting time slots with prices: {str(e)}")
+
+    def clean_price(self, price_text: str) -> str:
+        """Clean price text: '6,000 ₽' -> '6000 ₽'"""
+        if not price_text:
+            return "Цена не указана"
+        # Remove spaces and commas from numbers
+        cleaned = re.sub(r'(\d),(\d)', r'\1\2', price_text)
+        cleaned = re.sub(r'(\d)\s+(\d)', r'\1\2', cleaned)
+        cleaned = cleaned.strip()
+        return cleaned if '₽' in cleaned or 'руб' in cleaned else f"{cleaned} ₽"
+
+    def parse_duration(self, duration_text: str) -> int:
+        """Parse duration: '1 ч 30 мин' -> 90"""
+        if not duration_text:
+            return 60
+        
+        total_minutes = 0
+        # Extract hours
+        hour_match = re.search(r'(\d+)\s*ч', duration_text)
+        if hour_match:
+            total_minutes += int(hour_match.group(1)) * 60
+        
+        # Extract minutes
+        min_match = re.search(r'(\d+)\s*мин', duration_text)
+        if min_match:
+            total_minutes += int(min_match.group(1))
+        
+        return total_minutes if total_minutes > 0 else 60
+
+    def parse_date(self, date_text: str) -> str:
+        """Parse date from calendar text to ISO format."""
+        # For now, return current date. Can be enhanced with proper date parsing
+        # Russian month mapping
+        months = {
+            'январ': '01', 'феврал': '02', 'март': '03', 'апрел': '04',
+            'май': '05', 'май': '05', 'июн': '06', 'июл': '07',
+            'август': '08', 'сентябр': '09', 'октябр': '10',
+            'ноябр': '11', 'декабр': '12'
+        }
+        
+        try:
+            # Try to extract day and month
+            day_match = re.search(r'(\d{1,2})', date_text)
+            if day_match:
+                day = day_match.group(1).zfill(2)
+                # Find month
+                for month_name, month_num in months.items():
+                    if month_name in date_text.lower():
+                        year = datetime.now().year
+                        return f"{year}-{month_num}-{day}"
+        except:
+            pass
+        
+        return datetime.now().strftime('%Y-%m-%d')
+
+    def extract_venue_name(self, url: str) -> str:
+        """Extract venue name from URL or page content."""
+        # This is a placeholder - actual implementation would extract from page
+        if 'n1165596' in url:
+            return 'Нагатинская'
+        elif 'n1308467' in url:
+            return 'Корты-Сетки'
+        elif 'b861100' in url:
+            return 'Padel Friends'
+        elif 'b1009933' in url:
+            return 'ТК Ракетлон'
+        elif 'b918666' in url:
+            return 'Padel A33'
+        return 'Unknown Venue'
+
     async def extract_available_dates(self) -> List[Dict[str, Any]]:
         """
         Извлечение доступных дат бронирования.
@@ -390,6 +570,7 @@ class YClientsParser:
     async def parse_service_url(self, url: str) -> Tuple[bool, List[Dict[str, Any]]]:
         """
         Парсинг данных с прямого URL услуги.
+        Обновлен для использования 4-шагового навигационного потока YClients.
         
         Args:
             url: URL для парсинга
@@ -411,70 +592,56 @@ class YClientsParser:
             if not await self.check_for_antibot():
                 logger.warning("Обнаружена защита от ботов, смена прокси и перезапуск")
                 return False, []
-                
-            # Извлечение доступных дат
-            available_dates = await self.extract_available_dates()
-            if not available_dates:
-                logger.warning("Не найдены доступные даты")
-                return False, []
-                
-            # Для каждой доступной даты извлекаем временные слоты
-            for date_info in available_dates:
-                date = date_info["date"]
-                
-                # Извлечение временных слотов
-                time_slots = await self.extract_time_slots(date)
-                
-                # Добавляем данные в общий список
-                all_data.extend(time_slots)
-                
-                # Имитация поведения пользователя: случайная задержка между запросами
-                await asyncio.sleep(self.browser_manager.get_random_delay(1, 3))
             
-            return True, all_data
+            # Проверяем, является ли это YClients URL
+            if self.is_yclients_url(url):
+                logger.info("🎯 Используем 4-шаговую навигацию YClients")
+                # Используем новую 4-шаговую навигацию
+                all_data = await self.navigate_yclients_flow(self.page, url)
+            else:
+                logger.info("📄 Используем стандартное извлечение данных")
+                # Извлечение доступных дат (старый метод для других сайтов)
+                available_dates = await self.extract_available_dates()
+                if not available_dates:
+                    logger.warning("Не найдены доступные даты")
+                    return False, []
+                    
+                # Для каждой доступной даты извлекаем временные слоты
+                for date_info in available_dates:
+                    date = date_info["date"]
+                    
+                    # Извлечение временных слотов
+                    time_slots = await self.extract_time_slots(date)
+                    
+                    # Добавляем данные в общий список
+                    all_data.extend(time_slots)
+                    
+                    # Имитация поведения пользователя: случайная задержка между запросами
+                    await asyncio.sleep(self.browser_manager.get_random_delay(1, 3))
+            
+            success = len(all_data) > 0
+            if success:
+                self.last_parsed_urls[url] = datetime.now()
+                logger.info(f"Парсинг URL: {url} завершен успешно, получено {len(all_data)} записей")
+            else:
+                logger.warning(f"Парсинг URL: {url} завершен, но данные не извлечены")
+                
+            return success, all_data
         
         except Exception as e:
             logger.error(f"Ошибка при парсинге прямой ссылки {url}: {str(e)}")
             return False, []
-            # Навигация на страницу
-            navigation_success = await self.navigate_to_url(url)
-            if not navigation_success:
-                logger.error(f"Не удалось загрузить страницу: {url}")
-                return False, []
-                
-            # Проверка на антибот-защиту
-            if not await self.check_for_antibot():
-                logger.warning("Обнаружена защита от ботов, смена прокси и перезапуск")
-                return False, []
-                
-            # Извлечение доступных дат
-            available_dates = await self.extract_available_dates()
-            if not available_dates:
-                logger.warning("Не найдены доступные даты")
-                return False, []
-                
-            # Для каждой доступной даты извлекаем временные слоты
-            for date_info in available_dates:
-                date = date_info["date"]
-                
-                # Извлечение временных слотов
-                time_slots = await self.extract_time_slots(date)
-                
-                # Добавляем данные в общий список
-                all_data.extend(time_slots)
-                
-                # Имитация поведения пользователя: случайная задержка между запросами
-                await asyncio.sleep(self.browser_manager.get_random_delay(1, 3))
-            
-            success = True
-            self.last_parsed_urls[url] = datetime.now()
-            logger.info(f"Парсинг URL: {url} завершен успешно, получено {len(all_data)} записей")
-        
-        except Exception as e:
-            logger.error(f"Ошибка при парсинге URL {url}: {str(e)}")
-            success = False
-        
-        return success, all_data
+    
+    def is_yclients_url(self, url: str) -> bool:
+        """Проверяет, является ли URL страницей YClients."""
+        yclients_indicators = [
+            'yclients.com',
+            'record-type',
+            'personal/',
+            'select-time',
+            'select-master'
+        ]
+        return any(indicator in url for indicator in yclients_indicators)
 
     async def parse_all_urls(self) -> Dict[str, List[Dict[str, Any]]]:
         """

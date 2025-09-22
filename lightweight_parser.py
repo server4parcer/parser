@@ -24,8 +24,10 @@ sys.path.insert(0, current_dir)
 
 try:
     from src.database.db_manager import DatabaseManager
+    from src.parser.parser_router import ParserRouter
     SUPABASE_INTEGRATION_AVAILABLE = True
     print("✅ SUPABASE INTEGRATION: Загружен DatabaseManager")
+    print("✅ PARSER ROUTER: Загружен ParserRouter")
 except ImportError:
     SUPABASE_INTEGRATION_AVAILABLE = False
     print("❌ SUPABASE INTEGRATION: DatabaseManager не найден")
@@ -67,10 +69,58 @@ class YClientsParser:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
     
+    def is_javascript_heavy_page(self, soup: BeautifulSoup, url: str) -> bool:
+        """Определяет, является ли страница JavaScript-тяжелой (требует браузерного рендеринга)"""
+        
+        # Проверяем соотношение JS к контенту
+        js_scripts = soup.find_all('script')
+        js_size = sum(len(script.get_text()) for script in js_scripts if script.get_text())
+        
+        # Проверяем текстовый контент (исключая скрипты и стили)
+        for script in soup(["script", "style"]):
+            script.decompose()
+        text_content = soup.get_text()
+        content_size = len(text_content.strip())
+        
+        logger.info(f"📊 Анализ страницы {url}: JS={js_size} байт, контент={content_size} байт")
+        
+        # Если JS значительно больше контента, вероятно это SPA
+        if js_size > content_size * 2 and content_size < 1000:
+            logger.info(f"🔍 Обнаружена SPA: JS({js_size}) >> контент({content_size})")
+            return True
+        
+        # Проверяем на специфичные YClients паттерны для SPA
+        yclients_spa_indicators = [
+            'yclients.com/company/',
+            'record-type?o=',
+            'personal/select-time',
+            'personal/menu'
+        ]
+        
+        if any(indicator in url for indicator in yclients_spa_indicators):
+            # Проверяем, есть ли реальные данные бронирования в HTML
+            booking_indicators = soup.find_all(text=re.compile(r'\d{1,2}:\d{2}'))
+            price_indicators = soup.find_all(text=re.compile(r'\d+\s*₽|\d+\s*руб'))
+            
+            if len(booking_indicators) == 0 and len(price_indicators) == 0:
+                logger.info(f"🎯 YClients URL без данных бронирования в HTML - требует JavaScript")
+                return True
+        
+        return False
+    
     def parse_url(self, url: str) -> List[Dict]:
         """Парсинг одного URL с помощью requests"""
         try:
             logger.info(f"🎯 Парсинг URL: {url}")
+            
+            # ИСПРАВЛЕНО: Для YClients URL используем специализированный парсер
+            if 'yclients.com' in url:
+                logger.info(f"🎯 YClients URL обнаружен - используем специализированный парсер")
+                from src.parser.lightweight_yclients_parser import LightweightYClientsParser
+                yclients_parser = LightweightYClientsParser()
+                booking_data = yclients_parser.parse_url(url)
+                logger.info(f"✅ YClients парсер извлек {len(booking_data)} записей с {url}")
+                return booking_data
             
             # Получаем страницу
             response = self.session.get(url, timeout=30)
@@ -78,6 +128,13 @@ class YClientsParser:
             
             # Парсим HTML
             soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Проверяем, не является ли это JavaScript-тяжелой страницей
+            if self.is_javascript_heavy_page(soup, url):
+                logger.info(f"🔧 Обнаружена JavaScript-тяжелая страница: {url}")
+                logger.info(f"💡 Рекомендуется использовать специализированный парсер")
+                # Возвращаем пустой результат с информативным сообщением
+                return []
             
             # Извлекаем данные бронирования
             booking_data = self.extract_booking_data_from_html(soup, url)
@@ -87,8 +144,8 @@ class YClientsParser:
             
         except Exception as e:
             logger.error(f"❌ Ошибка парсинга {url}: {e}")
-            # Возвращаем тестовые данные для демонстрации
-            return self.generate_demo_data(url)
+            # Возвращаем пустой список - НЕТ ДЕМО-ДАННЫХ
+            return []
     
     def extract_booking_data_from_html(self, soup: BeautifulSoup, url: str) -> List[Dict]:
         """Извлечение данных бронирования из HTML"""
@@ -157,69 +214,17 @@ class YClientsParser:
                     if len(booking_data) >= 5:
                         break
             
-            # Если ничего не нашли, создаём демо-данные
+            # Если ничего не нашли, возвращаем пустой список
             if not booking_data:
-                booking_data = self.generate_demo_data(url)
+                logger.warning(f"⚠️ Данные не найдены для {url} - возможно требуется JavaScript")
+                booking_data = []
                 
         except Exception as e:
             logger.error(f"❌ Ошибка извлечения данных: {e}")
-            booking_data = self.generate_demo_data(url)
+            booking_data = []
         
         return booking_data
     
-    def generate_demo_data(self, url: str) -> List[Dict]:
-        """Генерация демонстрационных данных"""
-        logger.info("📝 Генерация демонстрационных данных...")
-        
-        demo_slots = [
-            {
-                "url": url,
-                "date": "2025-06-28",
-                "time": "10:00",
-                "price": "2500 ₽",
-                "provider": "Корт №1 Ультрапанорамик",
-                "seat_number": "1",
-                "location_name": "Нагатинская",
-                "court_type": "TENNIS",
-                "time_category": "ДЕНЬ",
-                "duration": 60,
-                "review_count": 11,
-                "prepayment_required": True,
-                "extracted_at": datetime.now().isoformat()
-            },
-            {
-                "url": url,
-                "date": "2025-06-28",
-                "time": "16:00", 
-                "price": "3000 ₽",
-                "provider": "Корт №2 Панорамик",
-                "seat_number": "2",
-                "location_name": "Нагатинская",
-                "court_type": "TENNIS", 
-                "time_category": "ВЕЧЕР",
-                "duration": 60,
-                "review_count": 13,
-                "prepayment_required": True,
-                "extracted_at": datetime.now().isoformat()
-            },
-            {
-                "url": url,
-                "date": "2025-06-29",
-                "time": "12:00",
-                "price": "2800 ₽", 
-                "provider": "Корт №3 Панорамик",
-                "seat_number": "3",
-                "location_name": "Нагатинская",
-                "court_type": "TENNIS",
-                "time_category": "ДЕНЬ",
-                "duration": 60,
-                "review_count": 8,
-                "prepayment_required": True,
-                "extracted_at": datetime.now().isoformat()
-            }
-        ]
-        
-        return demo_slots
     
     def parse_all_urls(self, urls: List[str]) -> List[Dict]:
         """Парсинг всех URL"""
@@ -384,8 +389,8 @@ async def save_to_database(data: List[Dict]) -> bool:
         return False
 
 async def run_parser():
-    """Запуск парсера YClients"""
-    global parsing_active, last_parse_time, parse_results
+    """Запуск парсера YClients с маршрутизацией"""
+    global parsing_active, last_parse_time, parse_results, db_manager
     
     if parsing_active:
         return {"status": "уже_запущен"}
@@ -394,27 +399,42 @@ async def run_parser():
     last_parse_time = datetime.now()
     
     try:
-        logger.info("🚀 Запуск лёгкого парсера YClients...")
+        logger.info("🚀 Запуск улучшенного парсера с маршрутизацией...")
         
         urls = [url.strip() for url in PARSE_URLS.split(",") if url.strip()]
         if not urls:
             return {"status": "error", "message": "URL не настроены"}
         
-        parser = YClientsParser()
-        results = parser.parse_all_urls(urls)
+        # Initialize router with database manager
+        if db_manager is None:
+            if not SUPABASE_INTEGRATION_AVAILABLE:
+                logger.error("❌ DatabaseManager недоступен")
+                return {"status": "error", "message": "DatabaseManager недоступен"}
+            db_manager = DatabaseManager()
+            await db_manager.initialize()
         
-        if results:
-            success = await save_to_database(results)
-            if success:
-                parse_results.update({
-                    "status": "завершено",
-                    "last_run": last_parse_time.isoformat(),
-                    "urls_parsed": len(urls),
-                    "records_extracted": len(results)
-                })
-                return {"status": "success", "extracted": len(results)}
-            else:
-                return {"status": "error", "message": "Ошибка сохранения в БД"}
+        router = ParserRouter(db_manager)
+        
+        all_results = []
+        for url in urls:
+            logger.info(f"🎯 Обработка URL: {url}")
+            url_results = await router.parse_url(url)
+            all_results.extend(url_results)
+        
+        # Clean up router resources
+        await router.close()
+        
+        if all_results:
+            success = await save_to_database(all_results)
+            parse_results.update({
+                "status": "завершено",
+                "last_run": last_parse_time.isoformat(),
+                "urls_parsed": len(urls),
+                "records_extracted": len(all_results),
+                "has_real_data": True,
+                "no_demo_data": True
+            })
+            return {"status": "success", "extracted": len(all_results)}
         else:
             return {"status": "warning", "message": "Данные не извлечены"}
             
@@ -713,8 +733,38 @@ def get_system_diagnostics():
         "timestamp": datetime.now().isoformat()
     }
 
+async def background_parser_task():
+    """Фоновая задача автоматического парсинга каждые 10 минут"""
+    logger.info(f"🔄 Запуск фоновой задачи парсинга (интервал: {PARSE_INTERVAL} секунд)")
+    
+    while True:
+        try:
+            if not parsing_active:  # Предотвращаем перекрывающиеся запуски
+                logger.info("🔄 Начало автоматического парсинга...")
+                await run_parser()
+                logger.info(f"⏰ Следующий парсинг через {PARSE_INTERVAL} секунд")
+            else:
+                logger.info("⏳ Парсинг уже выполняется, пропускаем...")
+            
+            await asyncio.sleep(PARSE_INTERVAL)
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка фонового парсера: {e}")
+            await asyncio.sleep(60)  # Ждём 1 минуту при ошибке
+
+async def run_api_server():
+    """Запуск API сервера как асинхронной задачи"""
+    config = uvicorn.Config(
+        app=app,
+        host=API_HOST,
+        port=API_PORT,
+        log_level="info"
+    )
+    server = uvicorn.Server(config)
+    await server.serve()
+
 if __name__ == "__main__":
-    print(f"🚀 ЛЁГКАЯ ВЕРСИЯ: Парсер YClients без браузерных зависимостей")
+    print(f"🚀 УЛУЧШЕННАЯ ВЕРСИЯ: Парсер YClients БЕЗ ДЕМО-ДАННЫХ")
     print(f"📋 Проверка системы:")
     print(f"   - API_KEY: {'✅ Установлен' if API_KEY else '❌ Отсутствует'}")
     print(f"   - PARSE_URLS: {'✅ Установлен' if PARSE_URLS else '❌ Отсутствует'}")
@@ -727,11 +777,16 @@ if __name__ == "__main__":
         print(f"   {i}. {url}")
     
     print(f"🏁 ГОТОВНОСТЬ К ПРОДАКШН: {'✅ ДА' if all([API_KEY, PARSE_URLS, SUPABASE_URL, SUPABASE_KEY]) else '❌ НЕТ'}")
-    print(f"🚀 Метод парсинга: Requests + BeautifulSoup (без браузерных зависимостей)")
+    print(f"🚀 Изменения: НЕТ демо-данных + автопарсинг + JavaScript обнаружение")
+    print(f"💡 JavaScript-тяжелые страницы требуют Playwright-парсер")
     
-    uvicorn.run(
-        app, 
-        host=API_HOST, 
-        port=API_PORT,
-        log_level="info"
-    )
+    try:
+        # Запускаем API сервер и фоновый парсер одновременно
+        asyncio.run(asyncio.gather(
+            run_api_server(),
+            background_parser_task()
+        ))
+    except KeyboardInterrupt:
+        print("\n👋 Парсер остановлен пользователем")
+    except Exception as e:
+        print(f"\n💥 Критическая ошибка: {e}")
