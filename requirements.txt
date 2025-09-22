@@ -1,4 +1,3 @@
-# YClients Parser - Full Playwright browser automation for 16GB TimeWeb
 python-dotenv>=1.0.0
 aiohttp>=3.8.4
 requests>=2.31.0
