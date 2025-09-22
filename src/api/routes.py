@@ -197,30 +197,30 @@ async def get_urls(
     """
     try:
         # Получаем список URL из базы данных
-        urls = []
-        
-        # Здесь будет реализация получения URL
-        # Пример:
-        async with db_manager.pool.acquire() as conn:
-            query = f"SELECT * FROM {db_manager.url_table}"
+        try:
             if active_only:
-                query += " WHERE is_active = TRUE"
-            query += " ORDER BY id"
+                response = db_manager.supabase.table(db_manager.url_table).select("*").eq("is_active", True).order("id").execute()
+            else:
+                response = db_manager.supabase.table(db_manager.url_table).select("*").order("id").execute()
             
-            rows = await conn.fetch(query)
+            rows = response.data or []
             
             urls = [
                 {
                     "id": row["id"],
                     "url": row["url"],
-                    "title": row["title"],
-                    "description": row["description"],
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                    "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-                    "is_active": row["is_active"]
+                    "title": row.get("title"),
+                    "description": row.get("description"),
+                    "created_at": row.get("created_at"),
+                    "updated_at": row.get("updated_at"),
+                    "is_active": row.get("is_active", True)
                 }
                 for row in rows
             ]
+            
+        except Exception as e:
+            logger.error(f"Ошибка получения URL из Supabase: {str(e)}")
+            urls = []
         
         return ApiResponse(
             status="success",
@@ -253,44 +253,45 @@ async def create_url(
     """
     try:
         # Проверяем, существует ли URL
-        async with db_manager.pool.acquire() as conn:
-            existing_url = await conn.fetchval(
-                f"SELECT id FROM {db_manager.url_table} WHERE url = $1",
-                str(url_data.url)
-            )
+        try:
+            response = db_manager.supabase.table(db_manager.url_table).select("id").eq("url", str(url_data.url)).execute()
             
-            if existing_url:
+            if response.data:
                 return ApiResponse(
                     status="error",
                     message="URL уже существует",
-                    data={"id": existing_url}
+                    data={"id": response.data[0]["id"]}
                 )
             
             # Создаем новый URL
-            url_id = await conn.fetchval(
-                f"""
-                INSERT INTO {db_manager.url_table} (url, title, description, is_active)
-                VALUES ($1, $2, $3, TRUE)
-                RETURNING id
-                """,
-                str(url_data.url), url_data.title, url_data.description
-            )
-            
-            # Получаем созданный URL
-            row = await conn.fetchrow(
-                f"SELECT * FROM {db_manager.url_table} WHERE id = $1",
-                url_id
-            )
-            
-            created_url = {
-                "id": row["id"],
-                "url": row["url"],
-                "title": row["title"],
-                "description": row["description"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-                "is_active": row["is_active"]
+            insert_data = {
+                "url": str(url_data.url),
+                "title": url_data.title,
+                "description": url_data.description,
+                "is_active": True
             }
+            
+            response = db_manager.supabase.table(db_manager.url_table).insert(insert_data).execute()
+            
+            if response.data:
+                created_url = {
+                    "id": response.data[0]["id"],
+                    "url": response.data[0]["url"],
+                    "title": response.data[0].get("title"),
+                    "description": response.data[0].get("description"),
+                    "created_at": response.data[0].get("created_at"),
+                    "updated_at": response.data[0].get("updated_at"),
+                    "is_active": response.data[0].get("is_active", True)
+                }
+            else:
+                raise Exception("Ошибка создания URL")
+            
+        except Exception as e:
+            logger.error(f"Ошибка создания URL в Supabase: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка создания URL: {str(e)}"
+            )
         
         return ApiResponse(
             status="success",
@@ -323,27 +324,34 @@ async def get_url(
     """
     try:
         # Получаем URL из базы данных
-        async with db_manager.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                f"SELECT * FROM {db_manager.url_table} WHERE id = $1",
-                url_id
-            )
+        try:
+            response = db_manager.supabase.table(db_manager.url_table).select("*").eq("id", url_id).execute()
             
-            if not row:
+            if not response.data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"URL с ID {url_id} не найден"
                 )
             
+            row = response.data[0]
             url_data = {
                 "id": row["id"],
                 "url": row["url"],
-                "title": row["title"],
-                "description": row["description"],
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-                "is_active": row["is_active"]
+                "title": row.get("title"),
+                "description": row.get("description"),
+                "created_at": row.get("created_at"),
+                "updated_at": row.get("updated_at"),
+                "is_active": row.get("is_active", True)
             }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка получения URL из Supabase: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка получения URL: {str(e)}"
+            )
         
         return ApiResponse(
             status="success",
@@ -381,44 +389,39 @@ async def update_url(
     """
     try:
         # Проверяем, существует ли URL
-        async with db_manager.pool.acquire() as conn:
-            existing_url = await conn.fetchrow(
-                f"SELECT * FROM {db_manager.url_table} WHERE id = $1",
-                url_id
-            )
+        try:
+            response = db_manager.supabase.table(db_manager.url_table).select("*").eq("id", url_id).execute()
             
-            if not existing_url:
+            if not response.data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"URL с ID {url_id} не найден"
                 )
             
-            # Формируем запрос на обновление
-            update_fields = []
-            update_values = []
+            existing_url = response.data[0]
+            
+            # Формируем данные для обновления
+            update_data = {}
             
             if url_data.title is not None:
-                update_fields.append("title = $" + str(len(update_values) + 1))
-                update_values.append(url_data.title)
+                update_data["title"] = url_data.title
             
             if url_data.description is not None:
-                update_fields.append("description = $" + str(len(update_values) + 1))
-                update_values.append(url_data.description)
+                update_data["description"] = url_data.description
             
             if url_data.is_active is not None:
-                update_fields.append("is_active = $" + str(len(update_values) + 1))
-                update_values.append(url_data.is_active)
+                update_data["is_active"] = url_data.is_active
             
-            if not update_fields:
+            if not update_data:
                 # Если нет полей для обновления, возвращаем текущие данные
                 url_data = {
                     "id": existing_url["id"],
                     "url": existing_url["url"],
-                    "title": existing_url["title"],
-                    "description": existing_url["description"],
-                    "created_at": existing_url["created_at"].isoformat() if existing_url["created_at"] else None,
-                    "updated_at": existing_url["updated_at"].isoformat() if existing_url["updated_at"] else None,
-                    "is_active": existing_url["is_active"]
+                    "title": existing_url.get("title"),
+                    "description": existing_url.get("description"),
+                    "created_at": existing_url.get("created_at"),
+                    "updated_at": existing_url.get("updated_at"),
+                    "is_active": existing_url.get("is_active", True)
                 }
                 
                 return ApiResponse(
@@ -427,29 +430,30 @@ async def update_url(
                     data=url_data
                 )
             
-            # Добавляем обновление поля updated_at
-            update_fields.append("updated_at = CURRENT_TIMESTAMP")
-            
             # Обновляем URL
-            query = f"""
-                UPDATE {db_manager.url_table}
-                SET {', '.join(update_fields)}
-                WHERE id = ${len(update_values) + 1}
-                RETURNING *
-            """
-            update_values.append(url_id)
+            response = db_manager.supabase.table(db_manager.url_table).update(update_data).eq("id", url_id).execute()
             
-            updated_row = await conn.fetchrow(query, *update_values)
+            if response.data:
+                updated_url = {
+                    "id": response.data[0]["id"],
+                    "url": response.data[0]["url"],
+                    "title": response.data[0].get("title"),
+                    "description": response.data[0].get("description"),
+                    "created_at": response.data[0].get("created_at"),
+                    "updated_at": response.data[0].get("updated_at"),
+                    "is_active": response.data[0].get("is_active", True)
+                }
+            else:
+                raise Exception("Ошибка обновления URL")
             
-            updated_url = {
-                "id": updated_row["id"],
-                "url": updated_row["url"],
-                "title": updated_row["title"],
-                "description": updated_row["description"],
-                "created_at": updated_row["created_at"].isoformat() if updated_row["created_at"] else None,
-                "updated_at": updated_row["updated_at"].isoformat() if updated_row["updated_at"] else None,
-                "is_active": updated_row["is_active"]
-            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка обновления URL в Supabase: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка обновления URL: {str(e)}"
+            )
         
         return ApiResponse(
             status="success",
@@ -485,28 +489,28 @@ async def delete_url(
     """
     try:
         # Проверяем, существует ли URL
-        async with db_manager.pool.acquire() as conn:
-            existing_url = await conn.fetchval(
-                f"SELECT id FROM {db_manager.url_table} WHERE id = $1",
-                url_id
-            )
+        try:
+            response = db_manager.supabase.table(db_manager.url_table).select("id").eq("id", url_id).execute()
             
-            if not existing_url:
+            if not response.data:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"URL с ID {url_id} не найден"
                 )
             
             # Удаляем связанные данные бронирования
-            await conn.execute(
-                f"DELETE FROM {db_manager.booking_table} WHERE url_id = $1",
-                url_id
-            )
+            db_manager.supabase.table(db_manager.booking_table).delete().eq("url_id", url_id).execute()
             
             # Удаляем URL
-            await conn.execute(
-                f"DELETE FROM {db_manager.url_table} WHERE id = $1",
-                url_id
+            db_manager.supabase.table(db_manager.url_table).delete().eq("id", url_id).execute()
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка удаления URL в Supabase: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка удаления URL: {str(e)}"
             )
         
         return ApiResponse(
@@ -604,59 +608,49 @@ async def get_booking_data(
         query += f" ORDER BY b.date DESC, b.time DESC LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}"
         params.extend([limit, offset])
         
-        # Выполняем запрос
-        async with db_manager.pool.acquire() as conn:
-            # Получаем общее количество записей
-            total_count = await conn.fetchval(count_query, *params[:-2])
+        # Выполняем запрос через Supabase
+        try:
+            response = db_manager.supabase.table(db_manager.booking_table).select("*").order("created_at", desc=True).range(offset, offset + limit - 1).execute()
             
-            # Получаем данные
-            rows = await conn.fetch(query, *params)
-            
-            # Преобразуем результаты
             booking_data = []
-            for row in rows:
+            total_count = len(response.data) if response.data else 0
+            
+            for row in response.data or []:
                 data = {
-                    "id": row["id"],
-                    "url": row["url"],
-                    "date": row["date"].isoformat(),
-                    "time": row["time"].isoformat(),
-                    "price": row["price"],
-                    "provider": row["provider"],
-                    "seat_number": row["seat_number"],
-                    "location_name": row["location_name"],
-                    "court_type": row["court_type"],
-                    "time_category": row["time_category"],
-                    "duration": row["duration"],
-                    "review_count": row["review_count"],
-                    "prepayment_required": row["prepayment_required"],
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                    "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+                    "id": row.get("id"),
+                    "url": row.get("url", ""),
+                    "date": row.get("date", ""),
+                    "time": row.get("time", ""),
+                    "price": row.get("price", ""),
+                    "provider": row.get("provider", ""),
+                    "seat_number": row.get("seat_number"),
+                    "location_name": row.get("location_name"),
+                    "court_type": row.get("court_type"),
+                    "time_category": row.get("time_category"),
+                    "duration": row.get("duration"),
+                    "review_count": row.get("review_count"),
+                    "prepayment_required": row.get("prepayment_required"),
+                    "created_at": row.get("created_at"),
+                    "updated_at": row.get("updated_at")
                 }
-                
-                # Add raw venue data if it exists
-                if row["raw_venue_data"]:
-                    data["raw_venue_data"] = json.loads(row["raw_venue_data"]) if isinstance(row["raw_venue_data"], str) else row["raw_venue_data"]
-                
-                # Добавляем дополнительные данные
-                if row["extra_data"]:
-                    extra_data = json.loads(row["extra_data"])
-                    for key, value in extra_data.items():
-                        if key not in data:
-                            data[key] = value
-                
                 booking_data.append(data)
         
-        return ApiResponse(
-            status="success",
-            message=f"Получено {len(booking_data)} записей бронирования",
-            data={
-                "total": total_count,
-                "limit": limit,
-                "offset": offset,
-                "items": booking_data
-            }
-        )
-    
+            return ApiResponse(
+                status="success",
+                message=f"Получено {len(booking_data)} записей бронирования",
+                data={
+                    "total": total_count,
+                    "limit": limit,
+                    "offset": offset,
+                    "items": booking_data
+                }
+            )
+        except Exception as e:
+            logger.error(f"Ошибка получения данных из Supabase: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Ошибка при получении данных бронирования: {str(e)}"
+            )
     except Exception as e:
         logger.error(f"Ошибка при получении данных бронирования: {str(e)}")
         raise HTTPException(
@@ -706,31 +700,45 @@ async def export_data(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"booking_data_{timestamp}.{format.lower()}"
         
-        # Путь к файлу
-        filepath = os.path.join(db_manager.export_path, filename)
+        # Путь к файлу (используем /tmp для временных файлов)
+        export_dir = "/tmp"
+        os.makedirs(export_dir, exist_ok=True)
+        filepath = os.path.join(export_dir, filename)
         
         # Получаем URL для запроса
         request_url = None
         if url:
             request_url = url
         elif url_id:
-            async with db_manager.pool.acquire() as conn:
-                request_url = await conn.fetchval(
-                    f"SELECT url FROM {db_manager.url_table} WHERE id = $1",
-                    url_id
-                )
+            try:
+                response = db_manager.supabase.table(db_manager.url_table).select("url").eq("id", url_id).execute()
+                if response.data:
+                    request_url = response.data[0]["url"]
+            except Exception as e:
+                logger.error(f"Error fetching URL by ID: {e}")
         
-        # Экспортируем данные
-        if format.lower() == "csv":
-            filepath = await db_manager.export_to_csv(
-                filepath, request_url, date_from, date_to,
-                location_name, court_type, time_category, include_analytics
-            )
-        else:
-            filepath = await db_manager.export_to_json(
-                filepath, request_url, date_from, date_to,
-                location_name, court_type, time_category, include_analytics
-            )
+        # Экспортируем данные (упрощенная версия)
+        try:
+            # Получаем данные через Supabase
+            response = db_manager.supabase.table(db_manager.booking_table).select("*").execute()
+            data = response.data or []
+            
+            if format.lower() == "csv":
+                import csv
+                with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                    if data:
+                        fieldnames = data[0].keys()
+                        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                        writer.writeheader()
+                        writer.writerows(data)
+            else:
+                import json
+                with open(filepath, 'w', encoding='utf-8') as jsonfile:
+                    json.dump(data, jsonfile, ensure_ascii=False, indent=2)
+                    
+        except Exception as e:
+            logger.error(f"Ошибка экспорта: {str(e)}")
+            filepath = None
         
         if not filepath:
             raise HTTPException(
@@ -784,55 +792,11 @@ async def get_price_analytics(
         ApiResponse: Аналитические данные по ценам
     """
     try:
-        # Получаем аналитические данные
-        price_ranges = None
-        price_comparison = None
-        
-        async with db_manager.pool.acquire() as conn:
-            # Получаем диапазоны цен по типу корта
-            query, params = BookingQueries.get_price_ranges_by_court_type()
-            price_ranges = await conn.fetch(query, *params)
-            
-            # Получаем сравнение цен по категориям времени
-            query, params = BookingQueries.get_price_comparison_by_time_category()
-            price_comparison = await conn.fetch(query, *params)
-        
-        # Преобразуем результаты
-        price_ranges_data = []
-        for row in price_ranges:
-            if court_type and row["court_type"] != court_type:
-                continue
-                
-            price_ranges_data.append({
-                "court_type": row["court_type"],
-                "min_price": row["min_price"],
-                "max_price": row["max_price"],
-                "avg_price": float(row["avg_price"]),
-                "venue_count": row["venue_count"]
-            })
-        
-        price_comparison_data = []
-        for row in price_comparison:
-            if court_type and row["court_type"] != court_type:
-                continue
-                
-            if time_category and row["time_category"] != time_category:
-                continue
-                
-            price_comparison_data.append({
-                "court_type": row["court_type"],
-                "time_category": row["time_category"],
-                "avg_price": float(row["avg_price"]),
-                "slot_count": row["slot_count"]
-            })
-        
-        return ApiResponse(
-            status="success",
-            message="Получены аналитические данные по ценам",
-            data={
-                "price_ranges": price_ranges_data,
-                "price_comparison": price_comparison_data
-            }
+        # Аналитика цен не имплементирована в текущей версии
+        # Используйте Supabase Dashboard для анализа данных
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Аналитика цен не реализована. Используйте Supabase Dashboard для просмотра данных."
         )
     
     except Exception as e:
@@ -863,53 +827,11 @@ async def get_availability_analytics(
         ApiResponse: Аналитические данные по доступности
     """
     try:
-        # Получаем аналитические данные
-        availability_by_location = None
-        court_types_by_venue = None
-        
-        async with db_manager.pool.acquire() as conn:
-            # Получаем доступность по местоположению
-            query, params = BookingQueries.get_availability_by_location()
-            availability_by_location = await conn.fetch(query, *params)
-            
-            # Получаем типы кортов по площадке
-            query, params = BookingQueries.get_court_types_by_venue()
-            court_types_by_venue = await conn.fetch(query, *params)
-        
-        # Преобразуем результаты
-        availability_data = []
-        for row in availability_by_location:
-            if location and row["location_name"] != location:
-                continue
-                
-            availability_data.append({
-                "location_name": row["location_name"],
-                "date": row["date"].isoformat(),
-                "total_slots": row["total_slots"]
-            })
-        
-        venue_data = []
-        for row in court_types_by_venue:
-            if court_type and row["court_type"] != court_type:
-                continue
-                
-            if location and row["location_name"] != location:
-                continue
-                
-            venue_data.append({
-                "url": row["url"],
-                "location_name": row["location_name"],
-                "court_type": row["court_type"],
-                "slot_count": row["slot_count"]
-            })
-        
-        return ApiResponse(
-            status="success",
-            message="Получены аналитические данные по доступности",
-            data={
-                "availability": availability_data,
-                "venues": venue_data
-            }
+        # Аналитика доступности не имплементирована в текущей версии
+        # Используйте Supabase Dashboard для анализа данных
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Аналитика доступности не реализована. Используйте Supabase Dashboard для просмотра данных."
         )
     
     except Exception as e:
@@ -942,37 +864,11 @@ async def get_price_history_analytics(
         ApiResponse: Аналитические данные по изменению цен
     """
     try:
-        # Получаем аналитические данные
-        price_changes = None
-        
-        async with db_manager.pool.acquire() as conn:
-            # Получаем изменения цен
-            query, params = PriceHistoryQueries.get_price_changes(days)
-            price_changes = await conn.fetch(query, *params)
-        
-        # Преобразуем результаты
-        price_history_data = []
-        for row in price_changes:
-            if court_type and row["court_type"] != court_type:
-                continue
-                
-            price_history_data.append({
-                "id": row["id"],
-                "current_price": row["current_price"],
-                "historical_price": row["historical_price"],
-                "recorded_at": row["recorded_at"].isoformat(),
-                "court_type": row["court_type"],
-                "location_name": row["location_name"],
-                "time_category": row["time_category"],
-                "url": row["url"]
-            })
-        
-        return ApiResponse(
-            status="success",
-            message="Получены аналитические данные по изменению цен",
-            data={
-                "price_history": price_history_data
-            }
+        # Аналитика истории цен не имплементирована в текущей версии
+        # Используйте Supabase Dashboard для анализа данных
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Аналитика истории цен не реализована. Используйте Supabase Dashboard для просмотра данных."
         )
     
     except Exception as e:
@@ -1000,7 +896,7 @@ async def download_file(
     """
     try:
         # Проверяем, существует ли файл
-        filepath = os.path.join(db_manager.export_path, filename)
+        filepath = os.path.join("/tmp", filename)
         
         if not os.path.exists(filepath):
             raise HTTPException(
@@ -1059,11 +955,12 @@ async def run_parser(
         parse_url = url
         
         if not parse_url and url_id:
-            async with db_manager.pool.acquire() as conn:
-                parse_url = await conn.fetchval(
-                    f"SELECT url FROM {db_manager.url_table} WHERE id = $1",
-                    url_id
-                )
+            try:
+                response = db_manager.supabase.table(db_manager.url_table).select("url").eq("id", url_id).execute()
+                if response.data:
+                    parse_url = response.data[0]["url"]
+            except Exception as e:
+                logger.error(f"Error fetching URL by ID: {e}")
         
         if not parse_url:
             raise HTTPException(
@@ -1112,13 +1009,16 @@ async def run_parser_for_all(
         # Получаем список URL из базы данных
         urls = []
         
-        async with db_manager.pool.acquire() as conn:
-            query = f"SELECT url FROM {db_manager.url_table}"
+        try:
             if active_only:
-                query += " WHERE is_active = TRUE"
+                response = db_manager.supabase.table(db_manager.url_table).select("url").eq("is_active", True).execute()
+            else:
+                response = db_manager.supabase.table(db_manager.url_table).select("url").execute()
             
-            rows = await conn.fetch(query)
-            urls = [row["url"] for row in rows]
+            if response.data:
+                urls = [row["url"] for row in response.data]
+        except Exception as e:
+            logger.error(f"Error fetching URLs: {e}")
         
         if not urls:
             return ApiResponse(
