@@ -382,12 +382,22 @@ class YClientsParser:
 
             try:
                 # Try different response structures
-                # Structure 1: {data: [{time, price, available}]}
+                # Structure 1: YClients JSON API format {data: [{type, id, attributes: {...}}]}
                 if isinstance(data, dict) and 'data' in data:
                     items = data['data']
                     if isinstance(items, list):
                         for booking in items:
-                            result = self.parse_booking_from_api(booking, api_url)
+                            # Check if this is JSON API format with attributes
+                            if isinstance(booking, dict) and 'attributes' in booking:
+                                # Extract the actual data from attributes
+                                booking_data = booking['attributes']
+                                # Also include type and id for context
+                                booking_data['_type'] = booking.get('type')
+                                booking_data['_id'] = booking.get('id')
+                                result = self.parse_booking_from_api(booking_data, api_url)
+                            else:
+                                # Standard format
+                                result = self.parse_booking_from_api(booking, api_url)
                             if result:
                                 results.append(result)
 
@@ -437,30 +447,49 @@ class YClientsParser:
             Parsed booking dict or None if insufficient data
         """
         try:
+            # Extract datetime from YClients format: "2025-10-01T18:00:00+03:00"
+            datetime_str = booking_obj.get('datetime', '')
+            date_parsed = None
+            time_parsed = None
+
+            if datetime_str and 'T' in datetime_str:
+                # Parse ISO datetime format
+                try:
+                    parts = datetime_str.split('T')
+                    date_parsed = parts[0]  # "2025-10-01"
+                    if len(parts) > 1:
+                        time_parsed = parts[1].split('+')[0].split('-')[0][:5]  # "18:00"
+                except:
+                    pass
+
             # Try common field names for each booking attribute
             result = {
                 'url': api_url,
-                'date': (booking_obj.get('date') or
+                'date': (date_parsed or
+                        booking_obj.get('date') or
                         booking_obj.get('booking_date') or
-                        booking_obj.get('datetime', '').split(' ')[0] if booking_obj.get('datetime') else None),
-                'time': (booking_obj.get('time') or
+                        booking_obj.get('datetime', '').split(' ')[0] if ' ' in booking_obj.get('datetime', '') else None),
+                'time': (time_parsed or
+                        booking_obj.get('time') or
                         booking_obj.get('slot_time') or
                         booking_obj.get('start_time') or
-                        booking_obj.get('datetime', '').split(' ')[1] if booking_obj.get('datetime') else None),
+                        booking_obj.get('datetime', '').split(' ')[1] if ' ' in booking_obj.get('datetime', '') else None),
                 'price': (booking_obj.get('price') or
                          booking_obj.get('cost') or
                          booking_obj.get('amount') or
-                         booking_obj.get('price_min')),
+                         booking_obj.get('price_min') or
+                         booking_obj.get('price_max')),
                 'provider': (booking_obj.get('provider') or
                             booking_obj.get('master') or
                             booking_obj.get('staff') or
                             booking_obj.get('staff_name') or
                             booking_obj.get('service_name')),
                 'duration': booking_obj.get('duration', 60),
-                'available': booking_obj.get('available', True),
+                'available': booking_obj.get('available') or booking_obj.get('is_bookable', True),
                 'service_name': (booking_obj.get('service_name') or
                                 booking_obj.get('service') or
                                 booking_obj.get('title')),
+                'booking_type': booking_obj.get('_type'),  # From JSON API format
                 'extracted_at': datetime.now().isoformat()
             }
 
