@@ -94,7 +94,38 @@ class YClientsParser:
             # Устанавливаем случайный юзер-агент из списка доступных
             user_agent = self.browser_manager.get_random_user_agent()
             await self.page.set_extra_http_headers({"User-Agent": user_agent})
-            
+
+            # ========== API REQUEST LOGGING FOR SPA DETECTION ==========
+            async def log_network_requests(response):
+                """Log all API calls to identify YClients data endpoints"""
+                url = response.url
+
+                # Log API calls that might contain booking data
+                if any(keyword in url for keyword in ['api', 'booking', 'slot', 'availability', 'time', 'service', 'calendar', 'ajax', 'data']):
+                    logger.info(f"🌐 [API-CALL] {response.status} {response.request.method} {url}")
+
+                    # Try to log response data for analysis
+                    try:
+                        if response.status == 200:
+                            content_type = response.headers.get('content-type', '')
+
+                            if 'application/json' in content_type:
+                                data = await response.json()
+                                logger.info(f"🌐 [API-DATA] JSON response keys: {list(data.keys()) if isinstance(data, dict) else 'array'}")
+
+                                # Log sample data (first item if list, truncated dict if dict)
+                                if isinstance(data, list) and len(data) > 0:
+                                    logger.info(f"🌐 [API-SAMPLE] First item: {str(data[0])[:200]}")
+                                elif isinstance(data, dict):
+                                    logger.info(f"🌐 [API-SAMPLE] Data: {str(data)[:200]}")
+                    except Exception as e:
+                        logger.debug(f"Could not parse API response: {e}")
+
+            # Attach listener to page
+            self.page.on('response', log_network_requests)
+            logger.info("🌐 [INIT] Network request listener attached")
+            # ========== END API REQUEST LOGGING ==========
+
             # Эмуляция поведения пользователя: случайные задержки перед навигацией
             await asyncio.sleep(self.browser_manager.get_random_delay(1, 3))
             
@@ -246,6 +277,204 @@ class YClientsParser:
         except Exception as e:
             logger.error(f"Ошибка при проверке антибот-защиты: {str(e)}")
             return False
+
+    async def extract_via_api_interception(self, page: Page, url: str) -> List[Dict]:
+        """
+        Extract booking data by capturing API responses instead of DOM scraping.
+        This works for SPA (Single Page Applications) like YClients that load data via JavaScript.
+
+        Args:
+            page: Playwright page object
+            url: URL to navigate and extract from
+
+        Returns:
+            List of extracted booking records
+        """
+        logger.info("🌐 [API-MODE] Starting API-based extraction")
+
+        captured_data = []
+
+        async def capture_booking_api(response):
+            """Capture API responses that contain booking/availability data"""
+            response_url = response.url
+
+            # Look for booking-related API calls
+            if any(keyword in response_url for keyword in ['booking', 'slot', 'availability', 'time', 'calendar', 'record']):
+                try:
+                    if response.status == 200 and 'application/json' in response.headers.get('content-type', ''):
+                        data = await response.json()
+
+                        logger.info(f"🌐 [API-CAPTURE] Captured data from: {response_url}")
+
+                        captured_data.append({
+                            'api_url': response_url,
+                            'data': data,
+                            'timestamp': datetime.now().isoformat()
+                        })
+
+                except Exception as e:
+                    logger.warning(f"🌐 [API-CAPTURE] Failed to parse response: {e}")
+
+        # Attach response listener
+        page.on('response', capture_booking_api)
+
+        try:
+            # Page is already loaded, just wait for API calls
+            await page.wait_for_timeout(3000)
+            await page.wait_for_load_state('networkidle', timeout=15000)
+
+            # Try to interact with page to trigger more API calls
+            # Click any visible date elements to load time slots
+            try:
+                dates = await page.locator('.calendar-day:not(.disabled)').all()
+                if dates and len(dates) > 0:
+                    logger.info(f"🌐 [API-MODE] Found {len(dates)} dates, clicking first to trigger API")
+                    await dates[0].click(force=True)
+                    await page.wait_for_timeout(2000)
+                    await page.wait_for_load_state('networkidle')
+            except:
+                pass
+
+            # Try clicking service items if on menu page
+            try:
+                services = await page.locator('[class*="service"], [class*="item"]').all()
+                if services and len(services) > 0:
+                    logger.info(f"🌐 [API-MODE] Found {len(services)} services, clicking first to trigger API")
+                    await services[0].click(force=True)
+                    await page.wait_for_timeout(2000)
+                    await page.wait_for_load_state('networkidle')
+            except:
+                pass
+
+            logger.info(f"🌐 [API-MODE] Captured {len(captured_data)} API responses")
+
+            # Process captured API data
+            if captured_data:
+                return self.parse_api_responses(captured_data)
+            else:
+                logger.warning("🌐 [API-MODE] No API data captured")
+                return []
+
+        except Exception as e:
+            logger.error(f"🌐 [API-MODE] Error: {str(e)}")
+            return []
+
+    def parse_api_responses(self, captured_data: List[Dict]) -> List[Dict]:
+        """
+        Parse captured API responses into booking records.
+        This method tries different response structures based on common API patterns.
+
+        Args:
+            captured_data: List of captured API responses with metadata
+
+        Returns:
+            List of parsed booking records
+        """
+        logger.info(f"🌐 [API-PARSE] Processing {len(captured_data)} API responses")
+
+        results = []
+
+        for item in captured_data:
+            api_url = item['api_url']
+            data = item['data']
+
+            logger.info(f"🌐 [API-PARSE] Processing response from: {api_url}")
+
+            try:
+                # Try different response structures
+                # Structure 1: {data: [{time, price, available}]}
+                if isinstance(data, dict) and 'data' in data:
+                    items = data['data']
+                    if isinstance(items, list):
+                        for booking in items:
+                            result = self.parse_booking_from_api(booking, api_url)
+                            if result:
+                                results.append(result)
+
+                # Structure 2: {result: {slots: [...]}}
+                elif isinstance(data, dict) and 'result' in data:
+                    result_data = data['result']
+                    if isinstance(result_data, dict) and 'slots' in result_data:
+                        for booking in result_data['slots']:
+                            result = self.parse_booking_from_api(booking, api_url)
+                            if result:
+                                results.append(result)
+                    elif isinstance(result_data, list):
+                        for booking in result_data:
+                            result = self.parse_booking_from_api(booking, api_url)
+                            if result:
+                                results.append(result)
+
+                # Structure 3: [{time, price, available}] - direct array
+                elif isinstance(data, list):
+                    for booking in data:
+                        result = self.parse_booking_from_api(booking, api_url)
+                        if result:
+                            results.append(result)
+
+                # Structure 4: Direct object
+                elif isinstance(data, dict):
+                    result = self.parse_booking_from_api(data, api_url)
+                    if result:
+                        results.append(result)
+
+            except Exception as e:
+                logger.warning(f"🌐 [API-PARSE] Failed to parse response structure: {e}")
+
+        logger.info(f"🌐 [API-PARSE] Extracted {len(results)} booking records from API")
+        return results
+
+    def parse_booking_from_api(self, booking_obj: Dict, api_url: str) -> Optional[Dict]:
+        """
+        Parse individual booking object from API response.
+        Tries common field names used in booking APIs.
+
+        Args:
+            booking_obj: Dictionary containing booking data
+            api_url: Source API URL for reference
+
+        Returns:
+            Parsed booking dict or None if insufficient data
+        """
+        try:
+            # Try common field names for each booking attribute
+            result = {
+                'url': api_url,
+                'date': (booking_obj.get('date') or
+                        booking_obj.get('booking_date') or
+                        booking_obj.get('datetime', '').split(' ')[0] if booking_obj.get('datetime') else None),
+                'time': (booking_obj.get('time') or
+                        booking_obj.get('slot_time') or
+                        booking_obj.get('start_time') or
+                        booking_obj.get('datetime', '').split(' ')[1] if booking_obj.get('datetime') else None),
+                'price': (booking_obj.get('price') or
+                         booking_obj.get('cost') or
+                         booking_obj.get('amount') or
+                         booking_obj.get('price_min')),
+                'provider': (booking_obj.get('provider') or
+                            booking_obj.get('master') or
+                            booking_obj.get('staff') or
+                            booking_obj.get('staff_name') or
+                            booking_obj.get('service_name')),
+                'duration': booking_obj.get('duration', 60),
+                'available': booking_obj.get('available', True),
+                'service_name': (booking_obj.get('service_name') or
+                                booking_obj.get('service') or
+                                booking_obj.get('title')),
+                'extracted_at': datetime.now().isoformat()
+            }
+
+            # Only return if we have minimum required fields (date OR time)
+            if result['date'] or result['time']:
+                logger.debug(f"🌐 [API-PARSE] Parsed booking: {result['date']} {result['time']} - {result['price']}")
+                return result
+            else:
+                logger.debug(f"🌐 [API-PARSE] Skipping object without date/time: {str(booking_obj)[:100]}")
+
+        except Exception as e:
+            logger.debug(f"🌐 [API-PARSE] Failed to parse booking object: {e}")
+
+        return None
 
     async def detect_and_handle_page_type(self, page: Page, original_url: str, current_url: str) -> List[Dict]:
         """
@@ -898,8 +1127,21 @@ class YClientsParser:
                 current_url = self.page.url
                 logger.info(f"🔍 [DETECTION] Current URL after load: {current_url}")
 
-                # Detect and handle based on actual page type
-                all_data = await self.detect_and_handle_page_type(self.page, url, current_url)
+                # Try API interception first (best for SPAs), fallback to DOM scraping
+                try:
+                    logger.info("🌐 [STRATEGY] Attempting API-based extraction first...")
+                    all_data = await self.extract_via_api_interception(self.page, url)
+
+                    # If API mode got data, use it
+                    if all_data and len(all_data) > 0:
+                        logger.info(f"✅ [STRATEGY] API mode succeeded: {len(all_data)} records")
+                    else:
+                        # Fallback to DOM scraping
+                        logger.info("⚠️ [STRATEGY] API mode returned 0 records, falling back to DOM scraping")
+                        all_data = await self.detect_and_handle_page_type(self.page, url, current_url)
+                except Exception as e:
+                    logger.error(f"❌ [STRATEGY] API mode failed: {e}, falling back to DOM scraping")
+                    all_data = await self.detect_and_handle_page_type(self.page, url, current_url)
             else:
                 logger.info("📄 Используем стандартное извлечение данных")
                 # Извлечение доступных дат (старый метод для других сайтов)
