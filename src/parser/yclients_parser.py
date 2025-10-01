@@ -294,30 +294,36 @@ class YClientsParser:
         logger.info("🏢 [MULTI-LOC] Attempting to handle multi-location redirect")
 
         try:
+            # Wait for page to fully load
+            await page.wait_for_timeout(2000)
+
             # Try to find and click first branch/location
             branch_selectors = [
-                'a[href*="/company/"]',  # Links to specific company pages
-                'ui-kit-simple-cell a',   # YClients UI cells with links
-                '.branch-link',            # Branch selection links
-                '[class*="location"]',     # Location elements
+                'ui-kit-simple-cell',      # YClients UI cells (most common)
+                'a[href*="/company/"]',    # Links to specific company pages
+                'a[href*="record-type"]',  # Direct booking links
+                '.branch-link',             # Branch selection links
+                '[class*="location"]',      # Location elements
+                'button[class*="branch"]',  # Branch buttons
             ]
 
             for selector in branch_selectors:
                 try:
                     elements = await page.locator(selector).all()
-                    if elements:
-                        logger.info(f"🏢 [MULTI-LOC] Found {len(elements)} location links with selector: {selector}")
+                    if elements and len(elements) > 0:
+                        logger.info(f"🏢 [MULTI-LOC] Found {len(elements)} elements with selector: {selector}")
 
-                        # Click first location
-                        first_link = elements[0]
-                        href = await first_link.get_attribute('href')
-                        logger.info(f"🏢 [MULTI-LOC] Clicking first location: {href}")
+                        # Click first location (use force for Angular components)
+                        first_element = elements[0]
+                        element_text = await first_element.text_content()
+                        logger.info(f"🏢 [MULTI-LOC] Clicking first location: {element_text[:50]}")
 
-                        await first_link.click()
+                        await first_element.click(force=True, timeout=5000)
                         await page.wait_for_load_state('networkidle', timeout=10000)
 
                         # Now recursively detect the new page type
                         new_url = page.url
+                        logger.info(f"🏢 [MULTI-LOC] After click, new URL: {new_url}")
                         return await self.detect_and_handle_page_type(page, original_url, new_url)
 
                 except Exception as e:
@@ -326,6 +332,7 @@ class YClientsParser:
 
             # If no location links found, cannot proceed
             logger.warning(f"⚠️ [MULTI-LOC] No location links found, cannot select branch")
+            logger.info(f"🏢 [MULTI-LOC] Page HTML snippet: {(await page.content())[:500]}")
             return []
 
         except Exception as e:
@@ -435,15 +442,35 @@ class YClientsParser:
                     date_text = await date.text_content()
                     logger.info(f"⏰ [TIME-PAGE] Processing date {date_idx+1}: {date_text[:20]}")
 
-                    await date.click()
-                    await page.wait_for_timeout(1000)
+                    # Use force=True for Angular components that intercept clicks
+                    await date.click(force=True, timeout=5000)
+                    await page.wait_for_timeout(2000)  # Give time for slots to load
 
                     # Extract time slots for this date
-                    time_slots = await page.locator('[data-time]').all()
+                    # Try multiple selectors
+                    time_slots = []
+                    time_slot_selectors = [
+                        '[data-time]',
+                        'button[class*="time"]',
+                        '.time-slot',
+                        'div[class*="slot"]',
+                    ]
+
+                    for selector in time_slot_selectors:
+                        try:
+                            slots = await page.locator(selector).all()
+                            if slots:
+                                time_slots = slots
+                                logger.info(f"⏰ [TIME-PAGE] Found {len(time_slots)} time slots with selector: {selector}")
+                                break
+                        except:
+                            continue
+
+                    # Fallback: search for time patterns in text
                     if not time_slots:
                         time_slots = await page.get_by_text(re.compile(r'\d{1,2}:\d{2}')).all()
-
-                    logger.info(f"⏰ [TIME-PAGE] Found {len(time_slots)} time slots")
+                        if time_slots:
+                            logger.info(f"⏰ [TIME-PAGE] Found {len(time_slots)} time slots via text pattern")
 
                     # Extract basic booking info from available slots
                     for slot_idx, slot in enumerate(time_slots[:5]):  # Limit to 5 slots
