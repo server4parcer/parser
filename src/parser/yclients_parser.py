@@ -247,6 +247,235 @@ class YClientsParser:
             logger.error(f"Ошибка при проверке антибот-защиты: {str(e)}")
             return False
 
+    async def detect_and_handle_page_type(self, page: Page, original_url: str, current_url: str) -> List[Dict]:
+        """
+        Smart detection of YClients page type and routing to appropriate handler.
+
+        Handles:
+        - City/branch selection pages (redirected multi-location venues)
+        - Menu pages (/personal/menu)
+        - Time selection pages (/personal/select-time - mid-flow)
+        - Standard record-type flow
+        """
+        try:
+            page_title = await page.title()
+            logger.info(f"🔍 [DETECTION] Page title: {page_title}")
+
+            # Check for city/branch selection redirect
+            if '/select-city' in current_url or '/select-branch' in current_url:
+                logger.warning(f"⚠️ [DETECTION] Redirected to city/branch selection page")
+                return await self.handle_multi_location_redirect(page, original_url)
+
+            # Check if on menu page
+            elif '/personal/menu' in current_url:
+                logger.info(f"✅ [DETECTION] Menu page detected")
+                return await self.handle_menu_page(page, current_url)
+
+            # Check if already at time selection (mid-flow URL)
+            elif '/personal/select-time' in current_url:
+                logger.info(f"✅ [DETECTION] Time selection page (mid-flow entry)")
+                return await self.handle_time_selection_page(page, current_url)
+
+            # Standard flow (record-type or similar)
+            else:
+                logger.info(f"✅ [DETECTION] Standard booking flow page")
+                return await self.navigate_yclients_flow(page, original_url)
+
+        except Exception as e:
+            logger.error(f"❌ [DETECTION] Error in page type detection: {str(e)}")
+            # Fallback to standard flow
+            return await self.navigate_yclients_flow(page, original_url)
+
+    async def handle_multi_location_redirect(self, page: Page, original_url: str) -> List[Dict]:
+        """
+        Handle pages that redirect to city/branch selection.
+        Try to select first available location and continue.
+        """
+        logger.info("🏢 [MULTI-LOC] Attempting to handle multi-location redirect")
+
+        try:
+            # Try to find and click first branch/location
+            branch_selectors = [
+                'a[href*="/company/"]',  # Links to specific company pages
+                'ui-kit-simple-cell a',   # YClients UI cells with links
+                '.branch-link',            # Branch selection links
+                '[class*="location"]',     # Location elements
+            ]
+
+            for selector in branch_selectors:
+                try:
+                    elements = await page.locator(selector).all()
+                    if elements:
+                        logger.info(f"🏢 [MULTI-LOC] Found {len(elements)} location links with selector: {selector}")
+
+                        # Click first location
+                        first_link = elements[0]
+                        href = await first_link.get_attribute('href')
+                        logger.info(f"🏢 [MULTI-LOC] Clicking first location: {href}")
+
+                        await first_link.click()
+                        await page.wait_for_load_state('networkidle', timeout=10000)
+
+                        # Now recursively detect the new page type
+                        new_url = page.url
+                        return await self.detect_and_handle_page_type(page, original_url, new_url)
+
+                except Exception as e:
+                    logger.debug(f"🏢 [MULTI-LOC] Selector {selector} failed: {e}")
+                    continue
+
+            # If no location links found, cannot proceed
+            logger.warning(f"⚠️ [MULTI-LOC] No location links found, cannot select branch")
+            return []
+
+        except Exception as e:
+            logger.error(f"❌ [MULTI-LOC] Error handling multi-location: {str(e)}")
+            return []
+
+    async def handle_menu_page(self, page: Page, url: str) -> List[Dict]:
+        """
+        Handle /personal/menu pages where services are listed but as menu items.
+        Extract available services and navigate to each.
+        """
+        logger.info("📋 [MENU] Extracting services from menu page")
+
+        results = []
+        try:
+            # Menu pages typically have service cards/cells
+            # Try to find clickable service elements
+            service_selectors = [
+                'ui-kit-simple-cell',
+                '[class*="service"]',
+                'a[href*="select-time"]',
+                '.menu-item',
+            ]
+
+            for selector in service_selectors:
+                try:
+                    await page.wait_for_selector(selector, timeout=5000)
+                    services = await page.locator(selector).all()
+
+                    if services:
+                        logger.info(f"📋 [MENU] Found {len(services)} services with selector: {selector}")
+
+                        # Click on first few services to get their booking flows
+                        for i, service in enumerate(services[:3]):  # Limit to 3 services
+                            try:
+                                service_text = await service.text_content()
+                                logger.info(f"📋 [MENU] Clicking service {i+1}: {service_text[:30]}")
+
+                                await service.click()
+                                await page.wait_for_load_state('networkidle', timeout=5000)
+
+                                # Now we should be in booking flow - detect and continue
+                                current_url = page.url
+                                service_results = await self.detect_and_handle_page_type(page, url, current_url)
+                                results.extend(service_results)
+
+                                # Go back to menu
+                                await page.go_back()
+                                await page.wait_for_load_state('networkidle', timeout=5000)
+
+                            except Exception as e:
+                                logger.warning(f"⚠️ [MENU] Failed to process service {i+1}: {e}")
+                                continue
+
+                        break  # Found services, stop trying other selectors
+
+                except Exception as e:
+                    logger.debug(f"📋 [MENU] Selector {selector} failed: {e}")
+                    continue
+
+            return results
+
+        except Exception as e:
+            logger.error(f"❌ [MENU] Error handling menu page: {str(e)}")
+            return []
+
+    async def handle_time_selection_page(self, page: Page, url: str) -> List[Dict]:
+        """
+        Handle pages that start directly at time selection (/personal/select-time).
+        This is a mid-flow entry point - we can extract times/prices directly.
+        """
+        logger.info("⏰ [TIME-PAGE] Extracting from time selection page")
+
+        results = []
+        try:
+            # On time selection page, we can directly extract available slots
+            # The page should have date picker and time slots
+
+            # Wait for time selection elements
+            await page.wait_for_timeout(2000)  # Let page fully load
+
+            # Try to extract dates
+            date_selectors = [
+                '.calendar-day:not(.disabled)',
+                '[class*="date"]',
+                '[data-date]',
+            ]
+
+            dates_found = []
+            for selector in date_selectors:
+                try:
+                    dates = await page.locator(selector).all()
+                    if dates and len(dates) > 0:
+                        dates_found = dates
+                        logger.info(f"⏰ [TIME-PAGE] Found {len(dates)} dates with selector: {selector}")
+                        break
+                except:
+                    continue
+
+            if not dates_found:
+                logger.warning("⚠️ [TIME-PAGE] No dates found on time selection page")
+                return []
+
+            # Process first 2 dates
+            for date_idx, date in enumerate(dates_found[:2]):
+                try:
+                    date_text = await date.text_content()
+                    logger.info(f"⏰ [TIME-PAGE] Processing date {date_idx+1}: {date_text[:20]}")
+
+                    await date.click()
+                    await page.wait_for_timeout(1000)
+
+                    # Extract time slots for this date
+                    time_slots = await page.locator('[data-time]').all()
+                    if not time_slots:
+                        time_slots = await page.get_by_text(re.compile(r'\d{1,2}:\d{2}')).all()
+
+                    logger.info(f"⏰ [TIME-PAGE] Found {len(time_slots)} time slots")
+
+                    # Extract basic booking info from available slots
+                    for slot_idx, slot in enumerate(time_slots[:5]):  # Limit to 5 slots
+                        try:
+                            time_text = await slot.text_content()
+
+                            # Create basic booking record
+                            result = {
+                                'url': page.url,
+                                'date': self.parse_date(date_text),
+                                'time': time_text.strip() if time_text else '',
+                                'price': 'Доступно',  # Time page doesn't always show price
+                                'provider': 'Не указан',
+                                'extracted_at': datetime.now().isoformat()
+                            }
+                            results.append(result)
+                            logger.info(f"⏰ [TIME-PAGE] Extracted slot: {date_text} {time_text}")
+
+                        except Exception as e:
+                            logger.warning(f"⚠️ [TIME-PAGE] Failed to extract slot {slot_idx+1}: {e}")
+                            continue
+
+                except Exception as e:
+                    logger.warning(f"⚠️ [TIME-PAGE] Failed to process date {date_idx+1}: {e}")
+                    continue
+
+            return results
+
+        except Exception as e:
+            logger.error(f"❌ [TIME-PAGE] Error handling time selection page: {str(e)}")
+            return []
+
     async def navigate_yclients_flow(self, page: Page, url: str) -> List[Dict]:
         """
         Navigate through YClients 4-step booking flow.
@@ -635,9 +864,15 @@ class YClientsParser:
             
             # Проверяем, является ли это YClients URL
             if self.is_yclients_url(url):
-                logger.info("🎯 Используем 4-шаговую навигацию YClients")
-                # Используем новую 4-шаговую навигацию
-                all_data = await self.navigate_yclients_flow(self.page, url)
+                logger.info("🎯 YClients URL detected, checking page type...")
+
+                # SMART DETECTION: Check what page we actually landed on after navigation
+                await self.page.wait_for_load_state('networkidle', timeout=5000)
+                current_url = self.page.url
+                logger.info(f"🔍 [DETECTION] Current URL after load: {current_url}")
+
+                # Detect and handle based on actual page type
+                all_data = await self.detect_and_handle_page_type(self.page, url, current_url)
             else:
                 logger.info("📄 Используем стандартное извлечение данных")
                 # Извлечение доступных дат (старый метод для других сайтов)
