@@ -380,7 +380,8 @@ class YClientsParser:
                 if isinstance(data, dict) and 'data' in data:
                     items = data['data']
                     if isinstance(items, list):
-                        for booking in items:
+                        logger.info(f"🔍 [API-PARSE] Found {len(items)} items in data array for {api_url}")
+                        for idx, booking in enumerate(items):
                             # Check if this is JSON API format with attributes
                             if isinstance(booking, dict) and 'attributes' in booking:
                                 # Extract the actual data from attributes
@@ -388,12 +389,17 @@ class YClientsParser:
                                 # Also include type and id for context
                                 booking_data['_type'] = booking.get('type')
                                 booking_data['_id'] = booking.get('id')
+                                logger.info(f"🔍 [API-PARSE] Item {idx+1}: type={booking.get('type')}, attributes keys={list(booking_data.keys())}")
                                 result = self.parse_booking_from_api(booking_data, api_url)
                             else:
                                 # Standard format
+                                logger.info(f"🔍 [API-PARSE] Item {idx+1}: standard format, keys={list(booking.keys()) if isinstance(booking, dict) else 'not dict'}")
                                 result = self.parse_booking_from_api(booking, api_url)
                             if result:
                                 results.append(result)
+                                logger.info(f"✅ [API-PARSE] Successfully added item {idx+1}")
+                            else:
+                                logger.warning(f"⚠️ [API-PARSE] Item {idx+1} returned None (filtered out)")
 
                 # Structure 2: {result: {slots: [...]}}
                 elif isinstance(data, dict) and 'result' in data:
@@ -489,13 +495,13 @@ class YClientsParser:
 
             # Only return if we have minimum required fields (date OR time)
             if result['date'] or result['time']:
-                logger.debug(f"🌐 [API-PARSE] Parsed booking: {result['date']} {result['time']} - {result['price']}")
+                logger.info(f"✅ [API-PARSE] Parsed booking: date={result['date']}, time={result['time']}, price={result['price']}, type={result.get('booking_type')}")
                 return result
             else:
-                logger.debug(f"🌐 [API-PARSE] Skipping object without date/time: {str(booking_obj)[:100]}")
+                logger.warning(f"⚠️ [API-PARSE] Skipping object without date/time: {str(booking_obj)[:150]}")
 
         except Exception as e:
-            logger.debug(f"🌐 [API-PARSE] Failed to parse booking object: {e}")
+            logger.warning(f"❌ [API-PARSE] Failed to parse booking object: {e} | Data: {str(booking_obj)[:150]}")
 
         return None
 
