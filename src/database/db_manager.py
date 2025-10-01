@@ -312,9 +312,11 @@ class DatabaseManager:
     def clean_booking_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Очистка и валидация данных бронирования.
+        Updated to include all fields expected by the database schema.
         """
+        import json
         cleaned = {}
-        
+
         # Дата
         date_value = data.get('date', '')
         if date_value:
@@ -328,7 +330,7 @@ class DatabaseManager:
                 cleaned['date'] = None
         else:
             cleaned['date'] = None
-        
+
         # Время
         time_value = data.get('time', '')
         if time_value:
@@ -341,12 +343,12 @@ class DatabaseManager:
                 cleaned['time'] = None
         else:
             cleaned['time'] = None
-        
+
         # Цена - КРИТИЧЕСКИ ВАЖНО: проверяем что это не время!
         price_value = data.get('price', '')
         if price_value:
             price_str = str(price_value).strip()
-            
+
             # Проверяем что это не время (формат HH:MM или просто число времени)
             if self.is_time_format(price_str):
                 logger.warning(f"⚠️ Найдено время вместо цены: {price_str}")
@@ -355,17 +357,88 @@ class DatabaseManager:
                 cleaned['price'] = price_str
         else:
             cleaned['price'] = "Цена не найдена"
-        
-        # Провайдер
-        provider_value = data.get('provider', '')
+
+        # Провайдер - map from service_name, court_name, or provider field
+        provider_value = data.get('provider') or data.get('court_name') or data.get('service_name', '')
         if provider_value and str(provider_value).strip() and str(provider_value).strip() != "Не указан":
             cleaned['provider'] = str(provider_value).strip()
         else:
             cleaned['provider'] = "Не указан"
-        
-        # Дополнительные поля
+
+        # NEW FIELDS - Add support for extended schema
+
+        # seat_number - optional, can be None
+        if 'seat_number' in data:
+            cleaned['seat_number'] = data['seat_number']
+
+        # location_name - map from venue_name or location_name
+        location = data.get('location_name') or data.get('venue_name')
+        if location:
+            cleaned['location_name'] = str(location).strip()
+
+        # court_type - derive from service_name or use explicit value
+        court_type = data.get('court_type')
+        if not court_type:
+            # Try to infer from service_name
+            service_name = str(data.get('service_name', '')).lower()
+            if 'падел' in service_name or 'padel' in service_name:
+                court_type = 'PADEL'
+            elif 'тенис' in service_name or 'tennis' in service_name:
+                court_type = 'TENNIS'
+            elif 'баскет' in service_name or 'basketball' in service_name:
+                court_type = 'BASKETBALL'
+
+        if court_type:
+            cleaned['court_type'] = court_type
+
+        # time_category - derive from time (morning/day/evening)
+        time_category = data.get('time_category')
+        if not time_category and cleaned.get('time'):
+            try:
+                hour = int(cleaned['time'].split(':')[0])
+                if 6 <= hour < 12:
+                    time_category = 'MORNING'
+                elif 12 <= hour < 18:
+                    time_category = 'DAY'
+                else:
+                    time_category = 'EVENING'
+            except:
+                pass
+
+        if time_category:
+            cleaned['time_category'] = time_category
+
+        # duration - get from data or default to 60 minutes
+        duration = data.get('duration', 60)
+        cleaned['duration'] = int(duration) if duration else 60
+
+        # review_count - optional numeric field
+        if 'review_count' in data:
+            cleaned['review_count'] = int(data['review_count']) if data['review_count'] else 0
+
+        # prepayment_required - boolean flag
+        if 'prepayment_required' in data:
+            cleaned['prepayment_required'] = bool(data['prepayment_required'])
+
+        # raw_venue_data - store original extraction data as JSON
+        try:
+            # Create a copy of original data for audit trail
+            raw_data = {k: v for k, v in data.items() if k not in ['url_id', 'created_at']}
+            cleaned['raw_venue_data'] = json.dumps(raw_data, ensure_ascii=False)
+        except:
+            pass
+
+        # extra_data - additional metadata
+        extra = data.get('extra_data')
+        if extra:
+            if isinstance(extra, dict):
+                cleaned['extra_data'] = json.dumps(extra, ensure_ascii=False)
+            elif isinstance(extra, str):
+                cleaned['extra_data'] = extra
+
+        # Timestamps
         cleaned['created_at'] = datetime.now().isoformat()
-        
+
         return cleaned
     
     def is_time_format(self, value: str) -> bool:

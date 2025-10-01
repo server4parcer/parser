@@ -256,85 +256,123 @@ class YClientsParser:
         Step 4: Service packages with prices (select-services)
         """
         results = []
-        
+        logger.info(f"🔍 [DEBUG] Starting 4-step YClients navigation for {url}")
+
         try:
             # Step 1: Load and select service type
+            logger.info(f"🔍 [DEBUG] Step 1: Loading page and waiting for ui-kit-simple-cell")
             await page.goto(url, wait_until='networkidle')
             await page.wait_for_selector('ui-kit-simple-cell', timeout=10000)
+            logger.info(f"🔍 [DEBUG] Step 1: Page loaded, title: {await page.title()}")
             
             # Click on "Индивидуальные услуги" or first available service
             service_links = await page.get_by_role('link').all()
+            logger.info(f"🔍 [DEBUG] Step 1: Found {len(service_links)} service links")
+            service_clicked = False
             for link in service_links:
                 text = await link.text_content()
                 if 'Индивидуальные' in text or 'услуги' in text.lower():
+                    logger.info(f"🔍 [DEBUG] Step 1: Clicking service link: {text[:50]}")
                     await link.click()
+                    service_clicked = True
                     break
-            
+
+            if not service_clicked:
+                logger.warning(f"⚠️ [DEBUG] Step 1: No matching service link found, trying first link")
+                if service_links:
+                    await service_links[0].click()
+
             # Step 2: Select courts
+            logger.info(f"🔍 [DEBUG] Step 2: Waiting for select-master page")
             await page.wait_for_url('**/personal/select-master**')
             await page.wait_for_selector('ui-kit-simple-cell')
-            
+            logger.info(f"🔍 [DEBUG] Step 2: On select-master page")
+
             courts = await page.locator('ui-kit-simple-cell').all()
-            for court in courts[:3]:  # Limit to first 3 courts for testing
+            logger.info(f"🔍 [DEBUG] Step 2: Found {len(courts)} courts")
+            for i, court in enumerate(courts[:3]):  # Limit to first 3 courts for testing
                 court_name = await court.locator('ui-kit-headline').text_content()
+                logger.info(f"🔍 [DEBUG] Step 2: Processing court {i+1}/3: {court_name[:50]}")
                 await court.click()
-                
+
                 # Continue to date selection
                 continue_btn = page.get_by_role('button', { 'name': 'Продолжить' })
                 if await continue_btn.is_visible():
+                    logger.info(f"🔍 [DEBUG] Step 2: Clicking 'Продолжить' button")
                     await continue_btn.click()
-                
+
                 # Step 3: Select dates and times
+                logger.info(f"🔍 [DEBUG] Step 3: Waiting for select-time page")
                 await page.wait_for_url('**/personal/select-time**')
+                logger.info(f"🔍 [DEBUG] Step 3: Extracting time slots for {court_name[:30]}")
+                before_count = len(results)
                 await self.extract_time_slots_with_prices(page, court_name, results)
-                
+                after_count = len(results)
+                logger.info(f"🔍 [DEBUG] Step 3: Extracted {after_count - before_count} slots for this court")
+
                 # Go back to court selection
                 await page.go_back()
                 await page.wait_for_selector('ui-kit-simple-cell')
-        
+
         except Exception as e:
-            logger.error(f"Error in 4-step navigation: {str(e)}")
-        
+            logger.error(f"❌ [DEBUG] Error in 4-step navigation: {str(e)}")
+            logger.error(f"❌ [DEBUG] Current URL: {page.url}")
+            logger.error(f"❌ [DEBUG] Page title: {await page.title()}")
+
+        logger.info(f"🔍 [DEBUG] Navigation complete: extracted {len(results)} total results")
+        if not results:
+            logger.warning(f"⚠️ [DEBUG] ZERO results extracted! This needs investigation.")
+
         return results
 
     async def extract_time_slots_with_prices(self, page: Page, court_name: str, results: List[Dict]):
         """Extract time slots and navigate to get prices."""
-        
+        logger.info(f"🔍 [DEBUG] extract_time_slots_with_prices: Starting for court {court_name[:30]}")
+
         try:
             # Get available dates
             dates = await page.locator('.calendar-day:not(.disabled)').all()
-            
-            for date in dates[:2]:  # Limit to 2 dates for testing
+            logger.info(f"🔍 [DEBUG] Found {len(dates)} available dates")
+
+            for date_idx, date in enumerate(dates[:2]):  # Limit to 2 dates for testing
                 date_text = await date.text_content()
+                logger.info(f"🔍 [DEBUG] Processing date {date_idx+1}/2: {date_text[:20]}")
                 await date.click()
                 await page.wait_for_timeout(1000)
-                
+
                 # Get time slots
                 time_slots = await page.locator('[data-time]').all()
                 if not time_slots:
                     # Try alternative selector
+                    logger.warning(f"⚠️ [DEBUG] No [data-time] slots found, trying text regex")
                     time_slots = await page.get_by_text(re.compile(r'\d{1,2}:\d{2}')).all()
-                
-                for slot in time_slots[:3]:  # Limit to 3 slots per date
+
+                logger.info(f"🔍 [DEBUG] Found {len(time_slots)} time slots for this date")
+
+                for slot_idx, slot in enumerate(time_slots[:3]):  # Limit to 3 slots per date
                     time_text = await slot.text_content()
+                    logger.info(f"🔍 [DEBUG] Processing time slot {slot_idx+1}/3: {time_text[:10]}")
                     await slot.click()
-                    
+
                     # Continue to services/prices
                     continue_btn = page.get_by_role('button', { 'name': 'Продолжить' })
                     if await continue_btn.is_visible():
                         await continue_btn.click()
-                        
+
                         # Step 4: Extract prices from service packages
+                        logger.info(f"🔍 [DEBUG] Step 4: Waiting for select-services page")
                         await page.wait_for_url('**/personal/select-services**')
                         await page.wait_for_selector('ui-kit-simple-cell')
-                        
+                        logger.info(f"🔍 [DEBUG] Step 4: On select-services page")
+
                         services = await page.locator('ui-kit-simple-cell').all()
-                        for service in services:
+                        logger.info(f"🔍 [DEBUG] Step 4: Found {len(services)} services")
+                        for svc_idx, service in enumerate(services):
                             try:
                                 name = await service.locator('ui-kit-headline').text_content()
                                 price = await service.locator('ui-kit-title').text_content()
                                 duration = await service.locator('ui-kit-body').text_content()
-                                
+
                                 # Clean and structure data
                                 result = {
                                     'url': page.url,
@@ -348,14 +386,16 @@ class YClientsParser:
                                     'extracted_at': datetime.now().isoformat()
                                 }
                                 results.append(result)
+                                logger.info(f"🔍 [DEBUG] Step 4: Extracted service {svc_idx+1}: {name[:30]} - {price}")
                             except Exception as e:
-                                logger.warning(f"Failed to extract service: {e}")
-                        
+                                logger.warning(f"⚠️ [DEBUG] Failed to extract service {svc_idx+1}: {e}")
+
                         # Go back to time selection
                         await page.go_back()
                         await page.wait_for_timeout(1000)
         except Exception as e:
-            logger.error(f"Error extracting time slots with prices: {str(e)}")
+            logger.error(f"❌ [DEBUG] Error extracting time slots with prices: {str(e)}")
+            logger.error(f"❌ [DEBUG] Current URL when error occurred: {page.url}")
 
     def clean_price(self, price_text: str) -> str:
         """Clean price text: '6,000 ₽' -> '6000 ₽'"""

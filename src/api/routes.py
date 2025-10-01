@@ -1043,6 +1043,93 @@ async def run_parser_for_all(
         )
 
 
+@app.post("/debug/test-parser", response_model=ApiResponse)
+async def test_parser_extraction(
+    url: str = Query(..., description="URL для тестирования"),
+    api_key: str = Depends(get_api_key)
+):
+    """
+    🔍 DEBUG: Тестирование парсера на одном URL без сохранения в БД.
+
+    Этот эндпоинт запускает парсер для указанного URL и возвращает
+    извлеченные данные без сохранения. Полезно для отладки извлечения данных.
+
+    Args:
+        url: URL для парсинга
+        api_key: API-ключ для авторизации
+
+    Returns:
+        ApiResponse: Извлеченные данные
+    """
+    try:
+        logger.info(f"🔍 [DEBUG] Test parser extraction for: {url}")
+
+        # Создаем экземпляр парсера
+        parser = YClientsParser([url], db_manager)
+
+        try:
+            # Инициализируем парсер (запуск браузера)
+            await parser.initialize()
+            logger.info(f"🔍 [DEBUG] Parser initialized successfully")
+
+            # Парсим URL (без сохранения)
+            success, data = await parser.parse_url(url)
+            logger.info(f"🔍 [DEBUG] Extraction complete: success={success}, records={len(data)}")
+
+            # Закрываем парсер
+            await parser.close()
+            logger.info(f"🔍 [DEBUG] Parser closed")
+
+            if success:
+                return ApiResponse(
+                    status="success",
+                    message=f"Извлечено {len(data)} записей",
+                    data={
+                        "url": url,
+                        "records_count": len(data),
+                        "extracted_data": data[:10] if len(data) > 10 else data,  # Limit to 10 for display
+                        "total_available": len(data)
+                    }
+                )
+            else:
+                return ApiResponse(
+                    status="warning",
+                    message="Парсинг выполнен, но данные не извлечены",
+                    data={
+                        "url": url,
+                        "records_count": 0,
+                        "extracted_data": [],
+                        "note": "Проверьте логи контейнера для деталей"
+                    }
+                )
+
+        except Exception as e:
+            logger.error(f"❌ [DEBUG] Parser execution error: {str(e)}")
+
+            # Try to close parser even on error
+            try:
+                await parser.close()
+            except:
+                pass
+
+            return ApiResponse(
+                status="error",
+                message=f"Ошибка при парсинге: {str(e)}",
+                data={
+                    "url": url,
+                    "error_type": type(e).__name__,
+                    "error_details": str(e)
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"❌ [DEBUG] Test parser failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ошибка тестирования парсера: {str(e)}"
+        )
+
+
 # Вспомогательные функции
 async def delete_file_after_delay(filepath: str, delay_seconds: int) -> None:
     """
