@@ -263,12 +263,9 @@ async def create_url(
                     data={"id": response.data[0]["id"]}
                 )
             
-            # Создаем новый URL
+            # Создаем новый URL (только обязательное поле url, т.к. в таблице минимальная схема)
             insert_data = {
-                "url": str(url_data.url),
-                "title": url_data.title,
-                "description": url_data.description,
-                "is_active": True
+                "url": str(url_data.url)
             }
             
             response = db_manager.supabase.table(db_manager.url_table).insert(insert_data).execute()
@@ -400,15 +397,12 @@ async def update_url(
             
             existing_url = response.data[0]
             
-            # Формируем данные для обновления
+            # Формируем данные для обновления (убираем description - поля нет в таблице)
             update_data = {}
-            
+
             if url_data.title is not None:
                 update_data["title"] = url_data.title
-            
-            if url_data.description is not None:
-                update_data["description"] = url_data.description
-            
+
             if url_data.is_active is not None:
                 update_data["is_active"] = url_data.is_active
             
