@@ -47,6 +47,7 @@ class YClientsParser:
         self.current_proxy = None
         self.retry_count = 0
         self.last_parsed_urls = {}  # Для отслеживания успешно обработанных URL
+        self.captured_api_data = []  # Shared list for API responses captured during page navigation
 
     async def initialize(self) -> None:
         """Инициализация браузера и контекста."""
@@ -95,16 +96,19 @@ class YClientsParser:
             user_agent = self.browser_manager.get_random_user_agent()
             await self.page.set_extra_http_headers({"User-Agent": user_agent})
 
-            # ========== API REQUEST LOGGING FOR SPA DETECTION ==========
-            async def log_network_requests(response):
-                """Log all API calls to identify YClients data endpoints"""
+            # ========== API REQUEST LOGGING AND CAPTURE FOR SPA ==========
+            # Clear previously captured data for new page
+            self.captured_api_data = []
+
+            async def capture_and_log_api(response):
+                """Capture API responses AND log them for debugging"""
                 url = response.url
 
-                # Log API calls that might contain booking data
+                # Log ALL API calls for debugging
                 if any(keyword in url for keyword in ['api', 'booking', 'slot', 'availability', 'time', 'service', 'calendar', 'ajax', 'data']):
                     logger.info(f"🌐 [API-CALL] {response.status} {response.request.method} {url}")
 
-                    # Try to log response data for analysis
+                    # Try to capture and log response data
                     try:
                         if response.status == 200:
                             content_type = response.headers.get('content-type', '')
@@ -113,18 +117,27 @@ class YClientsParser:
                                 data = await response.json()
                                 logger.info(f"🌐 [API-DATA] JSON response keys: {list(data.keys()) if isinstance(data, dict) else 'array'}")
 
-                                # Log sample data (first item if list, truncated dict if dict)
+                                # Log sample data
                                 if isinstance(data, list) and len(data) > 0:
                                     logger.info(f"🌐 [API-SAMPLE] First item: {str(data[0])[:200]}")
                                 elif isinstance(data, dict):
                                     logger.info(f"🌐 [API-SAMPLE] Data: {str(data)[:200]}")
+
+                                # CAPTURE booking-related API responses for extraction
+                                if any(keyword in url for keyword in ['booking', 'slot', 'availability', 'time', 'calendar', 'record']):
+                                    logger.info(f"🌐 [API-CAPTURE] Captured data from: {url}")
+                                    self.captured_api_data.append({
+                                        'api_url': url,
+                                        'data': data,
+                                        'timestamp': datetime.now().isoformat()
+                                    })
                     except Exception as e:
                         logger.debug(f"Could not parse API response: {e}")
 
             # Attach listener to page
-            self.page.on('response', log_network_requests)
-            logger.info("🌐 [INIT] Network request listener attached")
-            # ========== END API REQUEST LOGGING ==========
+            self.page.on('response', capture_and_log_api)
+            logger.info("🌐 [INIT] Network request listener attached (with capture)")
+            # ========== END API REQUEST LOGGING AND CAPTURE ==========
 
             # Эмуляция поведения пользователя: случайные задержки перед навигацией
             await asyncio.sleep(self.browser_manager.get_random_delay(1, 3))
@@ -292,43 +305,22 @@ class YClientsParser:
         """
         logger.info("🌐 [API-MODE] Starting API-based extraction")
 
-        captured_data = []
-
-        async def capture_booking_api(response):
-            """Capture API responses that contain booking/availability data"""
-            response_url = response.url
-
-            # Look for booking-related API calls
-            if any(keyword in response_url for keyword in ['booking', 'slot', 'availability', 'time', 'calendar', 'record']):
-                try:
-                    if response.status == 200 and 'application/json' in response.headers.get('content-type', ''):
-                        data = await response.json()
-
-                        logger.info(f"🌐 [API-CAPTURE] Captured data from: {response_url}")
-
-                        captured_data.append({
-                            'api_url': response_url,
-                            'data': data,
-                            'timestamp': datetime.now().isoformat()
-                        })
-
-                except Exception as e:
-                    logger.warning(f"🌐 [API-CAPTURE] Failed to parse response: {e}")
-
-        # Attach response listener
-        page.on('response', capture_booking_api)
-
         try:
-            # Page is already loaded, just wait for API calls
-            await page.wait_for_timeout(3000)
-            await page.wait_for_load_state('networkidle', timeout=15000)
+            # Use data that was ALREADY captured during page load by the main listener
+            # Page is already loaded, wait for any pending API calls to complete
+            await page.wait_for_timeout(2000)
+            await page.wait_for_load_state('networkidle', timeout=10000)
 
-            # Try to interact with page to trigger more API calls
+            # Check if we already have captured data from navigation
+            initial_count = len(self.captured_api_data)
+            logger.info(f"🌐 [API-MODE] Already captured {initial_count} API responses during page load")
+
+            # Try to interact with page to trigger MORE API calls (if needed)
             # Click any visible date elements to load time slots
             try:
                 dates = await page.locator('.calendar-day:not(.disabled)').all()
                 if dates and len(dates) > 0:
-                    logger.info(f"🌐 [API-MODE] Found {len(dates)} dates, clicking first to trigger API")
+                    logger.info(f"🌐 [API-MODE] Found {len(dates)} dates, clicking first to trigger more APIs")
                     await dates[0].click(force=True)
                     await page.wait_for_timeout(2000)
                     await page.wait_for_load_state('networkidle')
@@ -339,18 +331,20 @@ class YClientsParser:
             try:
                 services = await page.locator('[class*="service"], [class*="item"]').all()
                 if services and len(services) > 0:
-                    logger.info(f"🌐 [API-MODE] Found {len(services)} services, clicking first to trigger API")
+                    logger.info(f"🌐 [API-MODE] Found {len(services)} services, clicking first to trigger more APIs")
                     await services[0].click(force=True)
                     await page.wait_for_timeout(2000)
                     await page.wait_for_load_state('networkidle')
             except:
                 pass
 
-            logger.info(f"🌐 [API-MODE] Captured {len(captured_data)} API responses")
+            # Check how many responses we have now (including new ones from clicks)
+            total_captured = len(self.captured_api_data)
+            logger.info(f"🌐 [API-MODE] Total captured API responses: {total_captured} ({total_captured - initial_count} new from interactions)")
 
-            # Process captured API data
-            if captured_data:
-                return self.parse_api_responses(captured_data)
+            # Process ALL captured API data
+            if self.captured_api_data:
+                return self.parse_api_responses(self.captured_api_data)
             else:
                 logger.warning("🌐 [API-MODE] No API data captured")
                 return []
