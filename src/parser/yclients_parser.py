@@ -123,11 +123,16 @@ class YClientsParser:
                                 elif isinstance(data, dict):
                                     logger.info(f"🌐 [API-SAMPLE] Data: {str(data)[:200]}")
 
-                                # Захватываем ТОЛЬКО API временных слотов (не метаданные типа services/staff)
-                                # search-timeslots содержит реальное время бронирований
+                                # Захватываем ВСЕ API для корреляции данных
+                                # search-timeslots: время бронирования (datetime, time)
+                                # search-services: цены и названия услуг (price_min, price_max, service_name)
+                                # search-staff: имена мастеров/кортов (staff_name)
+                                # search-dates: доступные даты
                                 if any(keyword in url for keyword in [
-                                    'search-timeslots',  # YClients доступность бронирования (есть поля datetime + time)
-                                    # ПРИМЕЧАНИЕ: Убраны search-dates, search-staff, search-services - у них нет данных о времени
+                                    'search-timeslots',   # Время бронирования
+                                    'search-services',    # Цены и названия услуг
+                                    'search-staff',       # Провайдеры/корты
+                                    'search-dates',       # Доступные даты
                                 ]):
                                     logger.info(f"🌐 [API-CAPTURE] Captured data from: {url}")
                                     self.captured_api_data.append({
@@ -371,6 +376,95 @@ class YClientsParser:
         logger.info(f"🌐 [API-PARSE] Processing {len(captured_data)} API responses")
 
         results = []
+
+        # PHASE 1: Separate data by API type for correlation
+        services_data = []  # From search-services (has prices, service names)
+        staff_data = []     # From search-staff (has provider/court names)
+        timeslots_data = [] # From search-timeslots (has dates/times)
+        dates_data = []     # From search-dates (has available dates)
+
+        logger.info(f"🔗 [CORRELATION] Step 1: Separating {len(captured_data)} APIs by type")
+
+        for item in captured_data:
+            api_url = item['api_url']
+            data = item['data']
+
+            try:
+                # Extract items from JSON API format
+                items = []
+                if isinstance(data, dict) and 'data' in data:
+                    items = data['data'] if isinstance(data['data'], list) else [data['data']]
+                elif isinstance(data, list):
+                    items = data
+
+                # Categorize by API type
+                if 'search-services' in api_url:
+                    for service in items:
+                        if isinstance(service, dict) and 'attributes' in service:
+                            services_data.append(service['attributes'])
+                        elif isinstance(service, dict):
+                            services_data.append(service)
+                    logger.info(f"🔗 [CORRELATION] Found {len(items)} services from {api_url}")
+
+                elif 'search-staff' in api_url:
+                    for staff in items:
+                        if isinstance(staff, dict) and 'attributes' in staff:
+                            staff_data.append(staff['attributes'])
+                        elif isinstance(staff, dict):
+                            staff_data.append(staff)
+                    logger.info(f"🔗 [CORRELATION] Found {len(items)} staff from {api_url}")
+
+                elif 'search-timeslots' in api_url:
+                    for slot in items:
+                        if isinstance(slot, dict) and 'attributes' in slot:
+                            timeslots_data.append(slot['attributes'])
+                        elif isinstance(slot, dict):
+                            timeslots_data.append(slot)
+                    logger.info(f"🔗 [CORRELATION] Found {len(items)} timeslots from {api_url}")
+
+                elif 'search-dates' in api_url:
+                    for date in items:
+                        if isinstance(date, dict) and 'attributes' in date:
+                            dates_data.append(date['attributes'])
+                        elif isinstance(date, dict):
+                            dates_data.append(date)
+                    logger.info(f"🔗 [CORRELATION] Found {len(items)} dates from {api_url}")
+
+            except Exception as e:
+                logger.warning(f"🔗 [CORRELATION] Failed to categorize {api_url}: {e}")
+
+        # PHASE 2: Correlate data from different APIs
+        logger.info(f"🔗 [CORRELATION] Step 2: Merging data - Services:{len(services_data)}, Staff:{len(staff_data)}, Slots:{len(timeslots_data)}")
+
+        # Strategy: Apply service/staff data to all timeslots from same page load
+        # Assumption: 1 service + N timeslots = service applies to all slots
+        base_service = services_data[0] if services_data else {}
+        base_staff = staff_data[0] if staff_data else {}
+
+        if base_service:
+            logger.info(f"🔗 [CORRELATION] Base service: {base_service.get('service_name', 'N/A')}, price: {base_service.get('price_min', 'N/A')}")
+        if base_staff:
+            logger.info(f"🔗 [CORRELATION] Base staff: {base_staff.get('staff_name', 'N/A')}")
+
+        # Merge timeslots with service/staff data
+        for slot_data in timeslots_data:
+            merged = {
+                **slot_data,      # datetime, time, is_bookable
+                **base_service,   # price_min, price_max, service_name, duration
+                **base_staff      # staff_name
+            }
+            logger.info(f"🔗 [CORRELATION] Merged slot: time={merged.get('time')}, price={merged.get('price_min')}, service={merged.get('service_name')}")
+            result = self.parse_booking_from_api(merged, 'correlated-api')
+            if result:
+                results.append(result)
+
+        # If we have results from correlation, return them
+        if results:
+            logger.info(f"🔗 [CORRELATION] Successfully correlated {len(results)} records")
+            return results
+
+        # PHASE 3: Fallback to old logic if correlation produced no results
+        logger.info(f"🔗 [CORRELATION] No correlated results, falling back to direct parsing")
 
         for item in captured_data:
             api_url = item['api_url']
