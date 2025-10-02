@@ -420,13 +420,13 @@ class DatabaseManager:
         if 'prepayment_required' in data:
             cleaned['prepayment_required'] = bool(data['prepayment_required'])
 
-        # raw_venue_data - store original extraction data as JSON
-        try:
-            # Create a copy of original data for audit trail
-            raw_data = {k: v for k, v in data.items() if k not in ['url_id', 'created_at']}
-            cleaned['raw_venue_data'] = json.dumps(raw_data, ensure_ascii=False)
-        except:
-            pass
+        # NOTE: raw_venue_data column doesn't exist in booking_data table - removed
+        # If needed in future, add column to Supabase first, then uncomment:
+        # try:
+        #     raw_data = {k: v for k, v in data.items() if k not in ['url_id', 'created_at']}
+        #     cleaned['raw_venue_data'] = json.dumps(raw_data, ensure_ascii=False)
+        # except:
+        #     pass
 
         # extra_data - additional metadata
         extra = data.get('extra_data')
