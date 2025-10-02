@@ -134,7 +134,29 @@ class YClientsParser:
                                     'search-staff',       # Провайдеры/корты
                                     'search-dates',       # Доступные даты
                                 ]):
-                                    logger.info(f"🌐 [API-CAPTURE] Captured data from: {url}")
+                                    # Identify API type
+                                    api_type = 'UNKNOWN'
+                                    if 'search-timeslots' in url:
+                                        api_type = 'TIMESLOTS'
+                                    elif 'search-services' in url:
+                                        api_type = 'SERVICES'
+                                    elif 'search-staff' in url:
+                                        api_type = 'STAFF'
+                                    elif 'search-dates' in url:
+                                        api_type = 'DATES'
+
+                                    logger.info(f"🌐 [API-CAPTURE] ✅ Captured {api_type} from: {url}")
+
+                                    # Log data structure details
+                                    if isinstance(data, dict) and 'data' in data:
+                                        items = data['data'] if isinstance(data['data'], list) else [data['data']]
+                                        logger.info(f"🌐 [API-CAPTURE] {api_type} has {len(items)} items")
+                                        if items and len(items) > 0:
+                                            first_item = items[0]
+                                            if isinstance(first_item, dict) and 'attributes' in first_item:
+                                                attrs = first_item['attributes']
+                                                logger.info(f"🌐 [API-CAPTURE] {api_type} first item keys: {list(attrs.keys())}")
+
                                     self.captured_api_data.append({
                                         'api_url': url,
                                         'data': data,
@@ -384,6 +406,11 @@ class YClientsParser:
         dates_data = []     # From search-dates (has available dates)
 
         logger.info(f"🔗 [CORRELATION] Step 1: Separating {len(captured_data)} APIs by type")
+
+        # Log all captured API URLs for debugging
+        for item in captured_data:
+            api_url = item['api_url']
+            logger.info(f"🔗 [CORRELATION] Captured API: {api_url}")
 
         for item in captured_data:
             api_url = item['api_url']
