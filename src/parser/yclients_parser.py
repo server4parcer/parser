@@ -123,16 +123,11 @@ class YClientsParser:
                                 elif isinstance(data, dict):
                                     logger.info(f"🌐 [API-SAMPLE] Data: {str(data)[:200]}")
 
-                                # CAPTURE booking-related API responses for extraction
-                                # Be SPECIFIC to avoid capturing metadata APIs (book_staff, book_services, etc.)
+                                # CAPTURE ONLY booking time slot APIs (not metadata like services/staff)
+                                # search-timeslots has the actual booking times we need!
                                 if any(keyword in url for keyword in [
-                                    'search-timeslots',  # YClients booking availability
-                                    'search-dates',      # YClients date availability
-                                    'search-staff',      # YClients staff availability
-                                    '/availability/',    # Generic availability endpoint
-                                    '/slots/',           # Generic slots endpoint
-                                    '/calendar/',        # Calendar data
-                                    '/book_dates',       # Alternative date format
+                                    'search-timeslots',  # ✅ YClients booking availability (HAS datetime + time fields!)
+                                    # NOTE: Removed search-dates, search-staff, search-services - these don't have time data!
                                 ]):
                                     logger.info(f"🌐 [API-CAPTURE] Captured data from: {url}")
                                     self.captured_api_data.append({
