@@ -502,6 +502,9 @@ class YClientsParser:
                 'extracted_at': datetime.now().isoformat()
             }
 
+            # DEBUG: Log what we actually parsed
+            logger.info(f"🔍 [DEBUG] Parsed result: date={result.get('date')}, time={result.get('time')}, datetime_str={datetime_str[:30] if datetime_str else 'None'}")
+
             # Only return if we have minimum required fields (date OR time)
             if result['date'] or result['time']:
                 logger.info(f"✅ [API-PARSE] Parsed booking: date={result['date']}, time={result['time']}, price={result['price']}, type={result.get('booking_type')}")
