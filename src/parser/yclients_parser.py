@@ -468,7 +468,9 @@ class YClientsParser:
                     date_parsed = parts[0]  # "2025-10-01"
                     if len(parts) > 1:
                         time_parsed = parts[1].split('+')[0].split('-')[0][:5]  # "18:00"
-                except:
+                    logger.info(f"🔍 [PARSE-DEBUG] datetime={datetime_str} → date={date_parsed}, time={time_parsed}")
+                except Exception as e:
+                    logger.error(f"❌ [PARSE-DEBUG] Failed to parse datetime '{datetime_str}': {e}")
                     pass
 
             # Try common field names for each booking attribute
