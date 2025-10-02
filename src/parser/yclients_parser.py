@@ -474,17 +474,24 @@ class YClientsParser:
                     pass
 
             # Try common field names for each booking attribute
+            # Build date field with simpler logic
+            result_date = date_parsed if date_parsed else (
+                booking_obj.get('date') or
+                booking_obj.get('booking_date') or
+                None
+            )
+            # Build time field with simpler logic
+            result_time = time_parsed if time_parsed else (
+                booking_obj.get('time') or
+                booking_obj.get('slot_time') or
+                booking_obj.get('start_time') or
+                None
+            )
+
             result = {
                 'url': api_url,
-                'date': (date_parsed or
-                        booking_obj.get('date') or
-                        booking_obj.get('booking_date') or
-                        booking_obj.get('datetime', '').split(' ')[0] if ' ' in booking_obj.get('datetime', '') else None),
-                'time': (time_parsed or
-                        booking_obj.get('time') or
-                        booking_obj.get('slot_time') or
-                        booking_obj.get('start_time') or
-                        booking_obj.get('datetime', '').split(' ')[1] if ' ' in booking_obj.get('datetime', '') else None),
+                'date': result_date,
+                'time': result_time,
                 'price': (booking_obj.get('price') or
                          booking_obj.get('cost') or
                          booking_obj.get('amount') or
