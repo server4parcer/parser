@@ -420,8 +420,8 @@ class DatabaseManager:
         if 'prepayment_required' in data:
             cleaned['prepayment_required'] = bool(data['prepayment_required'])
 
-        # NOTE: raw_venue_data column doesn't exist in booking_data table - removed
-        # If needed in future, add column to Supabase first, then uncomment:
+        # ПРИМЕЧАНИЕ: Колонка raw_venue_data не существует в таблице booking_data - удалена
+        # Если понадобится в будущем, сначала добавьте колонку в Supabase, затем раскомментируйте:
         # try:
         #     raw_data = {k: v for k, v in data.items() if k not in ['url_id', 'created_at']}
         #     cleaned['raw_venue_data'] = json.dumps(raw_data, ensure_ascii=False)

@@ -123,11 +123,11 @@ class YClientsParser:
                                 elif isinstance(data, dict):
                                     logger.info(f"🌐 [API-SAMPLE] Data: {str(data)[:200]}")
 
-                                # CAPTURE ONLY booking time slot APIs (not metadata like services/staff)
-                                # search-timeslots has the actual booking times we need!
+                                # Захватываем ТОЛЬКО API временных слотов (не метаданные типа services/staff)
+                                # search-timeslots содержит реальное время бронирований
                                 if any(keyword in url for keyword in [
-                                    'search-timeslots',  # ✅ YClients booking availability (HAS datetime + time fields!)
-                                    # NOTE: Removed search-dates, search-staff, search-services - these don't have time data!
+                                    'search-timeslots',  # YClients доступность бронирования (есть поля datetime + time)
+                                    # ПРИМЕЧАНИЕ: Убраны search-dates, search-staff, search-services - у них нет данных о времени
                                 ]):
                                     logger.info(f"🌐 [API-CAPTURE] Captured data from: {url}")
                                     self.captured_api_data.append({
@@ -451,33 +451,33 @@ class YClientsParser:
             Parsed booking dict or None if insufficient data
         """
         try:
-            # YClients provides 'time' field directly - USE IT!
-            # API response: {'datetime': '2025-10-02T08:00:00+03:00', 'time': '8:00', 'is_bookable': True}
+            # YClients предоставляет поле 'time' напрямую - ИСПОЛЬЗУЕМ ЕГО!
+            # Ответ API: {'datetime': '2025-10-02T08:00:00+03:00', 'time': '8:00', 'is_bookable': True}
 
-            # Get time directly from YClients (most reliable)
+            # Получаем time напрямую из YClients (наиболее надежный способ)
             result_time = booking_obj.get('time')
             result_date = None
 
-            # Get date from datetime field
+            # Получаем дату из поля datetime
             datetime_str = booking_obj.get('datetime', '')
             if datetime_str and 'T' in datetime_str:
                 try:
                     result_date = datetime_str.split('T')[0]  # "2025-10-02"
-                    # If time not provided directly, parse it from datetime
+                    # Если time не предоставлен напрямую, парсим из datetime
                     if not result_time:
                         time_part = datetime_str.split('T')[1] if len(datetime_str.split('T')) > 1 else ''
                         result_time = time_part.split('+')[0].split('-')[0][:5]  # "08:00"
-                    logger.info(f"🔍 [PARSE-DEBUG] datetime={datetime_str} → date={result_date}, time={result_time}")
+                    logger.info(f"[PARSE-DEBUG] datetime={datetime_str} -> date={result_date}, time={result_time}")
                 except Exception as e:
-                    logger.error(f"❌ [PARSE-DEBUG] Failed to parse datetime '{datetime_str}': {e}")
+                    logger.error(f"[PARSE-DEBUG] Failed to parse datetime '{datetime_str}': {e}")
 
-            # Fallbacks for missing fields
+            # Резервные варианты для отсутствующих полей
             if not result_date:
                 result_date = booking_obj.get('date') or booking_obj.get('booking_date')
             if not result_time:
                 result_time = booking_obj.get('slot_time') or booking_obj.get('start_time')
 
-            logger.info(f"✅ [DIRECT-USE] Final values: date={result_date}, time={result_time}")
+            logger.info(f"[DIRECT-USE] Final values: date={result_date}, time={result_time}")
 
             result = {
                 'url': api_url,
