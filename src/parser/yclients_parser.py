@@ -488,6 +488,8 @@ class YClientsParser:
                 None
             )
 
+            logger.info(f"🔍 [ASSIGN-DEBUG] result_date={result_date}, result_time={result_time}, date_parsed={date_parsed}, time_parsed={time_parsed}")
+
             result = {
                 'url': api_url,
                 'date': result_date,
