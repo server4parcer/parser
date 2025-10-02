@@ -456,39 +456,33 @@ class YClientsParser:
             Parsed booking dict or None if insufficient data
         """
         try:
-            # Extract datetime from YClients format: "2025-10-01T18:00:00+03:00"
-            datetime_str = booking_obj.get('datetime', '')
-            date_parsed = None
-            time_parsed = None
+            # YClients provides 'time' field directly - USE IT!
+            # API response: {'datetime': '2025-10-02T08:00:00+03:00', 'time': '8:00', 'is_bookable': True}
 
+            # Get time directly from YClients (most reliable)
+            result_time = booking_obj.get('time')
+            result_date = None
+
+            # Get date from datetime field
+            datetime_str = booking_obj.get('datetime', '')
             if datetime_str and 'T' in datetime_str:
-                # Parse ISO datetime format
                 try:
-                    parts = datetime_str.split('T')
-                    date_parsed = parts[0]  # "2025-10-01"
-                    if len(parts) > 1:
-                        time_parsed = parts[1].split('+')[0].split('-')[0][:5]  # "18:00"
-                    logger.info(f"🔍 [PARSE-DEBUG] datetime={datetime_str} → date={date_parsed}, time={time_parsed}")
+                    result_date = datetime_str.split('T')[0]  # "2025-10-02"
+                    # If time not provided directly, parse it from datetime
+                    if not result_time:
+                        time_part = datetime_str.split('T')[1] if len(datetime_str.split('T')) > 1 else ''
+                        result_time = time_part.split('+')[0].split('-')[0][:5]  # "08:00"
+                    logger.info(f"🔍 [PARSE-DEBUG] datetime={datetime_str} → date={result_date}, time={result_time}")
                 except Exception as e:
                     logger.error(f"❌ [PARSE-DEBUG] Failed to parse datetime '{datetime_str}': {e}")
-                    pass
 
-            # Try common field names for each booking attribute
-            # Build date field with simpler logic
-            result_date = date_parsed if date_parsed else (
-                booking_obj.get('date') or
-                booking_obj.get('booking_date') or
-                None
-            )
-            # Build time field with simpler logic
-            result_time = time_parsed if time_parsed else (
-                booking_obj.get('time') or
-                booking_obj.get('slot_time') or
-                booking_obj.get('start_time') or
-                None
-            )
+            # Fallbacks for missing fields
+            if not result_date:
+                result_date = booking_obj.get('date') or booking_obj.get('booking_date')
+            if not result_time:
+                result_time = booking_obj.get('slot_time') or booking_obj.get('start_time')
 
-            logger.info(f"🔍 [ASSIGN-DEBUG] result_date={result_date}, result_time={result_time}, date_parsed={date_parsed}, time_parsed={time_parsed}")
+            logger.info(f"✅ [DIRECT-USE] Final values: date={result_date}, time={result_time}")
 
             result = {
                 'url': api_url,
