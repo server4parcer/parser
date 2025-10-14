@@ -367,9 +367,25 @@ class DatabaseManager:
 
         # NEW FIELDS - Add support for extended schema
 
-        # seat_number - optional, can be None
-        if 'seat_number' in data:
-            cleaned['seat_number'] = data['seat_number']
+        # seat_number - derive from provider name if not provided
+        seat_number = data.get('seat_number')
+        if not seat_number and cleaned.get('provider'):
+            # Extract seat/court number from provider name
+            # Examples:
+            # "Падел корт А33" → "А33"
+            # "Корт 1" → "1"
+            # "Теннис корт 2" → "2"
+            # "Court A12" → "A12"
+            provider_text = cleaned['provider']
+            import re
+            # Match patterns like: А33, A12, 1, 2, etc.
+            seat_match = re.search(r'[АБВГДABCDЕEабвгдabcde]?\d+', provider_text)
+            if seat_match:
+                seat_number = seat_match.group()
+                logger.info(f"🎯 [SEAT-DERIVE] Extracted seat '{seat_number}' from provider '{provider_text}'")
+
+        if seat_number:
+            cleaned['seat_number'] = str(seat_number).strip()
 
         # location_name - map from venue_name or location_name
         location = data.get('location_name') or data.get('venue_name')

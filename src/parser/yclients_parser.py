@@ -48,6 +48,7 @@ class YClientsParser:
         self.retry_count = 0
         self.last_parsed_urls = {}  # Для отслеживания успешно обработанных URL
         self.captured_api_data = []  # Shared list for API responses captured during page navigation
+        self.scraped_providers = []  # HTML-scraped provider/court names for 100% business value
 
     async def initialize(self) -> None:
         """Инициализация браузера и контекста."""
@@ -188,10 +189,15 @@ class YClientsParser:
             
             # Ждем полной загрузки страницы и динамического контента
             await self.page.wait_for_load_state("networkidle")
-            
+
             # Эмуляция случайного скроллинга страницы
             await self.browser_manager.emulate_human_scrolling(self.page)
-            
+
+            # ========== HTML PROVIDER SCRAPING FOR 100% BUSINESS VALUE ==========
+            # Scrape provider/court names from HTML (APIs don't have them!)
+            await self.scrape_provider_names_from_html()
+            # ========== END HTML PROVIDER SCRAPING ==========
+
             return True
             
         except TimeoutError:
@@ -200,6 +206,100 @@ class YClientsParser:
         except Exception as e:
             logger.error(f"Ошибка при навигации на {url}: {str(e)}")
             return False
+
+    async def scrape_provider_names_from_html(self) -> None:
+        """
+        Scrape provider/court names from HTML page.
+        CRITICAL FOR 100% BUSINESS VALUE - APIs don't have service_name/provider fields!
+
+        Strategy:
+        - Find all service/court name elements in DOM
+        - Extract text + associated data-id/service-id attributes
+        - Store for later correlation with API data
+        """
+        try:
+            logger.info("🏷️  [HTML-SCRAPE] Starting provider name extraction from HTML")
+
+            # Clear previous scraped data
+            self.scraped_providers = []
+
+            # Wait a bit for dynamic content to fully render
+            await asyncio.sleep(1)
+
+            # Execute JavaScript to find all provider/court/service name elements
+            providers = await self.page.evaluate('''() => {
+                const results = [];
+
+                // Try multiple selector strategies
+                const selectors = [
+                    // YClients common patterns
+                    '.service-name',
+                    '.service-title',
+                    '.service-card .title',
+                    '.service-item .name',
+                    '.staff-name',
+                    '.staff-title',
+                    '.court-name',
+                    '.booking-service-name',
+                    '[data-service-name]',
+                    '[data-court-name]',
+                    '[data-service-title]',
+                    // Generic patterns
+                    '.service h3',
+                    '.service h4',
+                    '.card-title',
+                    '.item-title',
+                    // Try data attributes
+                    '[data-service-id]',
+                    '[data-staff-id]',
+                    '[data-id][class*="service"]',
+                    '[data-id][class*="court"]'
+                ];
+
+                for (const selector of selectors) {
+                    try {
+                        const elements = document.querySelectorAll(selector);
+                        for (const el of elements) {
+                            const text = el.textContent?.trim();
+                            if (text && text.length > 0 && text.length < 200) {
+                                const id = el.dataset.serviceId || el.dataset.staffId ||
+                                           el.dataset.id || el.dataset.courtId ||
+                                           el.getAttribute('data-service-id') ||
+                                           el.getAttribute('data-id');
+
+                                // Only add if we haven't seen this text yet
+                                if (!results.some(r => r.name === text)) {
+                                    results.push({
+                                        name: text,
+                                        id: id || null,
+                                        selector: selector,
+                                        className: el.className
+                                    });
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Selector failed, continue
+                    }
+                }
+
+                return results;
+            }''')
+
+            self.scraped_providers = providers
+
+            if providers:
+                logger.info(f"🏷️  [HTML-SCRAPE] Found {len(providers)} provider/court names:")
+                for provider in providers[:5]:  # Log first 5
+                    logger.info(f"   - {provider.get('name')} (id: {provider.get('id')}, selector: {provider.get('selector')})")
+                if len(providers) > 5:
+                    logger.info(f"   ... and {len(providers) - 5} more")
+            else:
+                logger.warning("🏷️  [HTML-SCRAPE] No provider names found in HTML (may need manual selector inspection)")
+
+        except Exception as e:
+            logger.error(f"🏷️  [HTML-SCRAPE] Error scraping providers: {e}")
+            self.scraped_providers = []
 
     async def handle_service_selection_page(self, url: str) -> List[str]:
         """
@@ -473,14 +573,38 @@ class YClientsParser:
         if base_staff:
             logger.info(f"🔗 [CORRELATION] Base staff: {base_staff.get('staff_name', 'N/A')}")
 
-        # Merge timeslots with service/staff data
+        # Merge timeslots with service/staff data + HTML-scraped providers
         for slot_data in timeslots_data:
             merged = {
                 **slot_data,      # datetime, time, is_bookable
                 **base_service,   # price_min, price_max, service_name, duration
                 **base_staff      # staff_name
             }
-            logger.info(f"🔗 [CORRELATION] Merged slot: time={merged.get('time')}, price={merged.get('price_min')}, service={merged.get('service_name')}")
+
+            # ========== PHASE 2.5: MERGE HTML-SCRAPED PROVIDERS FOR 100% VALUE ==========
+            # APIs don't have service_name, so use HTML-scraped data!
+            service_id = merged.get('id') or base_service.get('id')
+            provider_name = None
+
+            if service_id and self.scraped_providers:
+                # Try to match by ID
+                for provider in self.scraped_providers:
+                    if provider.get('id') == str(service_id):
+                        provider_name = provider.get('name')
+                        logger.info(f"🏷️  [CORRELATION] Matched provider by ID: {provider_name}")
+                        break
+
+            # Fallback: If no ID match, use first scraped provider (better than nothing)
+            if not provider_name and self.scraped_providers:
+                provider_name = self.scraped_providers[0].get('name')
+                logger.info(f"🏷️  [CORRELATION] Using first scraped provider (no ID match): {provider_name}")
+
+            # Add provider to merged data
+            if provider_name:
+                merged['provider'] = provider_name
+            # ========== END HTML-SCRAPED PROVIDERS MERGE ==========
+
+            logger.info(f"🔗 [CORRELATION] Merged slot: time={merged.get('time')}, price={merged.get('price_min')}, provider={merged.get('provider', 'N/A')}")
             result = self.parse_booking_from_api(merged, 'correlated-api')
             if result:
                 results.append(result)
