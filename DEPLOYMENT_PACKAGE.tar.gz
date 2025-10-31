@@ -1,0 +1,15 @@
+This is a deployment package for YClients parser fix.
+
+INSTRUCTIONS:
+1. Extract this package on the production server
+2. Replace the existing src/ directory with this updated version
+3. Restart the application
+4. Test with: curl -s "https://server4parcer-parser-4949.twc1.net/data?api_key=yclients_parser_secure_key_2024&limit=3"
+
+CHANGES:
+- src/parser/yclients_parser.py: API capture implementation working
+- src/parser/production_data_extractor.py: Improved fallback logic
+- src/main.py: Updated parser logic to prefer API mode
+
+EXPECTED RESULT:
+Production should now show real prices like "2800₽" instead of "Цена не найдена"
