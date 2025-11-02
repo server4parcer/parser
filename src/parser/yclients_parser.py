@@ -779,40 +779,22 @@ class YClientsParser:
             # Check for city/branch selection redirect
             if '/select-city' in current_url or '/select-branch' in current_url:
                 logger.warning(f"⚠️ [DETECTION] Redirected to city/branch selection page")
-                dom_results = await self.handle_multi_location_redirect(page, original_url)
+                return await self.handle_multi_location_redirect(page, original_url)
+
             # Check if on menu page
             elif '/personal/menu' in current_url:
                 logger.info(f"✅ [DETECTION] Menu page detected")
-                dom_results = await self.handle_menu_page(page, current_url)
+                return await self.handle_menu_page(page, current_url)
+
             # Check if already at time selection (mid-flow URL)
             elif '/personal/select-time' in current_url:
                 logger.info(f"✅ [DETECTION] Time selection page (mid-flow entry)")
-                dom_results = await self.handle_time_selection_page(page, current_url)
+                return await self.handle_time_selection_page(page, current_url)
+
             # Standard flow (record-type or similar)
             else:
                 logger.info(f"✅ [DETECTION] Standard booking flow page")
-                dom_results = await self.navigate_yclients_flow(page, original_url)
-
-            # MERGE: Combine DOM results with any API data captured during navigation
-            if self.captured_api_data:
-                logger.info(f"🔗 [MERGE] DOM extracted {len(dom_results)} records, have {len(self.captured_api_data)} API captures")
-                api_results = self.parse_api_responses(self.captured_api_data)
-                logger.info(f"🔗 [MERGE] API parsing produced {len(api_results)} records")
-
-                # Merge: prefer API data for prices/providers, prefer DOM for dates/times
-                merged = []
-                for dom_rec in dom_results:
-                    merged.append(dom_rec)
-
-                for api_rec in api_results:
-                    # Only add API records that have data DOM doesn't
-                    if api_rec.get('price') or api_rec.get('provider'):
-                        merged.append(api_rec)
-
-                logger.info(f"🔗 [MERGE] Final merged: {len(merged)} records")
-                return merged
-
-            return dom_results
+                return await self.navigate_yclients_flow(page, original_url)
 
         except Exception as e:
             logger.error(f"❌ [DETECTION] Error in page type detection: {str(e)}")
@@ -1436,13 +1418,12 @@ class YClientsParser:
                     logger.info("🌐 [STRATEGY] Attempting API-based extraction first...")
                     all_data = await self.extract_via_api_interception(self.page, url)
 
-                    # If API mode got data WITH date AND time, use it
-                    has_valid_bookings = any(record.get('date') and record.get('time') for record in all_data) if all_data else False
-                    if all_data and len(all_data) > 0 and has_valid_bookings:
-                        logger.info(f"✅ [STRATEGY] API mode succeeded: {len(all_data)} records with date/time")
+                    # If API mode got data, use it
+                    if all_data and len(all_data) > 0:
+                        logger.info(f"✅ [STRATEGY] API mode succeeded: {len(all_data)} records")
                     else:
-                        # Fallback to DOM scraping to get full booking flow
-                        logger.info("⚠️ [STRATEGY] API mode has no date/time, falling back to full navigation")
+                        # Fallback to DOM scraping
+                        logger.info("⚠️ [STRATEGY] API mode returned 0 records, falling back to DOM scraping")
                         all_data = await self.detect_and_handle_page_type(self.page, url, current_url)
                 except Exception as e:
                     logger.error(f"❌ [STRATEGY] API mode failed: {e}, falling back to DOM scraping")
