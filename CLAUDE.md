@@ -2,14 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 🔴 CRITICAL: Latest Session Findings (2025-11-01)
-
-**READ THESE FIRST before continuing work:**
-- **RESEARCH_SESSION_2025-11-01.md** - Root cause analysis of dates-only bug
-- **EXECUTION_PLAN.md** - Deployment steps and verification checklist
-
-**Status:** Bugs fixed (commit 37ad54c), needs testing + production deployment.
-
 ## Project Overview
 
 This is a YClients parser system that automates data collection from the YCLIENTS booking platform. The system extracts booking information (dates, times, prices, providers) and stores it in Supabase for business analytics. It's designed for deployment on TimeWeb hosting using Docker containers.
