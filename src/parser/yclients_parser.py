@@ -573,6 +573,9 @@ class YClientsParser:
         if base_staff:
             logger.info(f"🔗 [CORRELATION] Base staff: {base_staff.get('staff_name', 'N/A')}")
 
+        # Deduplication: Track seen records by (date, time, provider) composite key
+        seen_records = set()
+
         # Merge timeslots with service/staff data + HTML-scraped providers
         for slot_data in timeslots_data:
             merged = {
@@ -607,7 +610,19 @@ class YClientsParser:
             logger.info(f"🔗 [CORRELATION] Merged slot: time={merged.get('time')}, price={merged.get('price_min')}, provider={merged.get('provider', 'N/A')}")
             result = self.parse_booking_from_api(merged, 'correlated-api')
             if result:
-                results.append(result)
+                # Deduplication check using (date, time, provider) composite key
+                dedup_key = (result.get('date'), result.get('time'), result.get('provider'))
+
+                # Only add if unique AND all key fields are present (not None)
+                if dedup_key not in seen_records and all(dedup_key):
+                    results.append(result)
+                    seen_records.add(dedup_key)
+                    logger.info(f"✅ [DEDUP] Added unique record: date={dedup_key[0]}, time={dedup_key[1]}, provider={dedup_key[2]}")
+                else:
+                    if dedup_key in seen_records:
+                        logger.warning(f"⚠️ [DEDUP] Skipped duplicate: {dedup_key}")
+                    else:
+                        logger.warning(f"⚠️ [DEDUP] Skipped incomplete record (missing key fields): {dedup_key}")
 
         # If we have results from correlation, return them
         if results:
@@ -750,8 +765,8 @@ class YClientsParser:
             # DEBUG: Log what we actually parsed
             logger.info(f"🔍 [DEBUG] Parsed result: date={result.get('date')}, time={result.get('time')}, datetime_str={datetime_str[:30] if datetime_str else 'None'}")
 
-            # Only return if we have minimum required fields (date OR time)
-            if result['date'] or result['time']:
+            # Only return if we have required fields (BOTH date AND time)
+            if result['date'] and result['time']:
                 logger.info(f"✅ [API-PARSE] Parsed booking: date={result['date']}, time={result['time']}, price={result['price']}, type={result.get('booking_type')}")
                 return result
             else:

@@ -2,6 +2,41 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🎯 Business Problem
+
+**Goal**: Automate tracking of sports venue booking availability and prices from YClients platform.
+
+**Why**: YClients doesn't provide API access, so we must scrape 10-15 specific booking pages to monitor:
+- Court/venue availability (dates & times)
+- Real-time pricing
+- Provider/court assignments
+- Seat/court numbers
+
+**Use Case**: Business needs this data updated every 10 minutes to:
+- Track competitor pricing
+- Monitor availability patterns
+- Analyze demand trends
+- Make data-driven booking decisions
+
+**Output**: Automated CSV/JSON exports with structured booking data.
+
+## 🔑 Critical Data Fields (REQUIRED)
+
+### Minimum Viable Data (MUST HAVE):
+1. **date** - Available booking date (e.g., "2025-11-04")
+2. **time** - Available booking time (e.g., "14:00:00")
+3. **price** - Booking price with currency (e.g., "2800₽")
+4. **provider** - Court/service provider name (e.g., "Корт А33", "Padel Friends")
+5. **seat_number** - Court/seat identifier (e.g., "А33", "1")
+
+### Optional Analytics Fields (NICE TO HAVE):
+6. **location_name** - Venue name
+7. **court_type** - Sport type (PADEL, TENNIS, BASKETBALL) - derived from service name
+8. **time_category** - Time slot category (DAY, EVENING, WEEKEND) - derived from time
+9. **duration** - Session duration in minutes (default: 60)
+
+**Note**: `review_count` and `prepayment_required` are schema fields but NOT currently captured from YClients.
+
 ## Project Overview
 
 This is a YClients parser system that automates data collection from the YCLIENTS booking platform. The system extracts booking information (dates, times, prices, providers) and stores it in Supabase for business analytics. It's designed for deployment on TimeWeb hosting using Docker containers.
