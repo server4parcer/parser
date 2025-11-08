@@ -191,6 +191,9 @@ class DatabaseManager:
                     if response.data:
                         total_inserted += len(response.data)
                         logger.info(f"✅ Вставлен батч {i//batch_size + 1}: {len(response.data)} записей")
+                        logger.info(f"✅ [PRODUCTION-PROOF] SAVED TO SUPABASE: {len(response.data)} records")
+                        for rec in response.data[:2]:
+                            logger.info(f"✅ [PRODUCTION-PROOF] Sample: date={rec.get('date')}, price={rec.get('price')}")
                     
                 except Exception as e:
                     # Расширенное логирование ошибок

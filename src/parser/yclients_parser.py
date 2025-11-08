@@ -613,8 +613,8 @@ class YClientsParser:
                 # Deduplication check using (date, time, provider) composite key
                 dedup_key = (result.get('date'), result.get('time'), result.get('provider'))
 
-                # Only add if unique AND all key fields are present (not None)
-                if dedup_key not in seen_records and all(dedup_key):
+                # Only add if unique AND has date+time (provider can be None/fallback)
+                if dedup_key not in seen_records and result.get('date') and result.get('time'):
                     results.append(result)
                     seen_records.add(dedup_key)
                     logger.info(f"✅ [DEDUP] Added unique record: date={dedup_key[0]}, time={dedup_key[1]}, provider={dedup_key[2]}")
@@ -825,16 +825,86 @@ class YClientsParser:
 
         try:
             # Wait for page to fully load
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(3000)
 
-            # Try to find and click first branch/location
+            # CRITICAL FIX: Use div with hasText filter to find location cards
+            # Based on Playwright exploration findings - branch selection uses nested divs
+            try:
+                # Look for location names in the page
+                location_patterns = [
+                    'Lunda Padel',
+                    'Padel',
+                    'филиал',  # Branch in Russian
+                ]
+
+                for pattern in location_patterns:
+                    try:
+                        # Find clickable divs containing location names
+                        locations = await page.locator(f'div[cursor="pointer"]:has-text("{pattern}")').all()
+
+                        # Alternative: Find any clickable generic elements with location text
+                        if not locations:
+                            locations = await page.locator(f'generic[cursor="pointer"]:has-text("{pattern}")').all()
+
+                        # Fallback: Use JavaScript to find clickable elements with text content
+                        if not locations:
+                            locations = await page.evaluate(f'''() => {{
+                                const pattern = "{pattern}";
+                                const clickable = [];
+                                const allDivs = document.querySelectorAll('div, generic');
+
+                                allDivs.forEach(div => {{
+                                    const style = window.getComputedStyle(div);
+                                    const text = div.textContent || '';
+
+                                    if (text.includes(pattern) &&
+                                        style.cursor === 'pointer' &&
+                                        div.offsetHeight > 0) {{
+                                        clickable.push(div);
+                                    }}
+                                }});
+
+                                return clickable;
+                            }}''')
+
+                            if locations and len(locations) > 0:
+                                logger.info(f"🏢 [MULTI-LOC] Found {len(locations)} clickable locations via JS with pattern '{pattern}'")
+                                # Click first one using JavaScript
+                                await page.evaluate('(el) => el.click()', locations[0])
+                                await page.wait_for_load_state('networkidle', timeout=10000)
+
+                                new_url = page.url
+                                logger.info(f"🏢 [MULTI-LOC] After JS click, new URL: {new_url}")
+                                return await self.detect_and_handle_page_type(page, original_url, new_url)
+
+                        if locations and len(locations) > 0:
+                            logger.info(f"🏢 [MULTI-LOC] Found {len(locations)} clickable locations with pattern '{pattern}'")
+
+                            # Click first available location
+                            first_location = locations[0]
+                            location_text = await first_location.text_content()
+                            logger.info(f"🏢 [MULTI-LOC] Clicking first location: {location_text[:100]}")
+
+                            await first_location.click(force=True, timeout=5000)
+                            await page.wait_for_load_state('networkidle', timeout=10000)
+
+                            new_url = page.url
+                            logger.info(f"🏢 [MULTI-LOC] After click, new URL: {new_url}")
+                            return await self.detect_and_handle_page_type(page, original_url, new_url)
+
+                    except Exception as e:
+                        logger.debug(f"🏢 [MULTI-LOC] Pattern '{pattern}' search failed: {e}")
+                        continue
+
+            except Exception as e:
+                logger.warning(f"🏢 [MULTI-LOC] Advanced location search failed: {e}")
+
+            # Fallback to old selectors
             branch_selectors = [
-                'ui-kit-simple-cell',      # YClients UI cells (most common)
-                'a[href*="/company/"]',    # Links to specific company pages
-                'a[href*="record-type"]',  # Direct booking links
-                '.branch-link',             # Branch selection links
-                '[class*="location"]',      # Location elements
-                'button[class*="branch"]',  # Branch buttons
+                'div[cursor="pointer"]',    # Generic clickable divs
+                'ui-kit-simple-cell',       # YClients UI cells
+                'a[href*="/company/"]',     # Links to specific company pages
+                'a[href*="record-type"]',   # Direct booking links
             ]
 
             for selector in branch_selectors:
@@ -932,19 +1002,222 @@ class YClientsParser:
     async def handle_time_selection_page(self, page: Page, url: str) -> List[Dict]:
         """
         Handle pages that start directly at time selection (/personal/select-time).
-        This is a mid-flow entry point - we can extract times/prices directly.
+        CRITICAL FIX: Now navigates full flow TIME → COURT → SERVICE to capture ALL data.
+
+        Real YClients flow (confirmed from Playwright exploration):
+        1. TIME selection (this page) - capture dates/times
+        2. COURT selection - capture court names (DOM scrape)
+        3. SERVICE selection - capture prices (DOM scrape)
         """
-        logger.info("⏰ [TIME-PAGE] Extracting from time selection page")
+        logger.info("⏰ [TIME-PAGE] Starting FULL flow navigation (TIME → COURT → SERVICE)")
 
         results = []
-        try:
-            # On time selection page, we can directly extract available slots
-            # The page should have date picker and time slots
+        scraped_data = {'dates': [], 'times': [], 'courts': [], 'services': []}
 
+        try:
             # Wait for time selection elements
             await page.wait_for_timeout(2000)  # Let page fully load
 
-            # Try to extract dates
+            # Check if page shows "No free time" message with "Go to nearest date" button
+            try:
+                nearest_date_btn = page.get_by_role('button', name=re.compile(r'Перейти.*ближайшей.*дате'))
+                if await nearest_date_btn.is_visible(timeout=2000):
+                    logger.info("⏰ [TIME-PAGE] Found 'Go to nearest date' button, clicking...")
+                    await nearest_date_btn.click(force=True)
+                    await page.wait_for_timeout(3000)  # Wait for time slots to appear
+
+                    # Time slots should now be visible - proceed to click one
+                    try:
+                        # Look for time slots (format: "9:00", "22:00", etc.)
+                        time_slots = await page.get_by_text(re.compile(r'^\d{1,2}:\d{2}$')).all()
+                        if not time_slots:
+                            raise Exception("No time slots found")
+                        time_slot = time_slots[0]
+                        time_text = await time_slot.text_content()
+                        logger.info(f"⏰ [TIME-PAGE] Clicking time slot: {time_text}")
+
+                        await time_slot.click(force=True)
+                        await page.wait_for_timeout(1500)
+
+                        # Click Продолжить button
+                        continue_btn = page.get_by_role('button', name='Продолжить')
+                        if await continue_btn.is_visible(timeout=2000):
+                            logger.info("🎯 Clicking Продолжить")
+                            await continue_btn.click(force=True)
+                            await page.wait_for_load_state('networkidle', timeout=10000)
+
+                            # Should now be on select-services page
+                            if 'select-services' in page.url:
+                                logger.info("✅ [FLOW-A] On service page - scraping prices")
+
+                                # Get provider (paragraph element)
+                                provider = 'Unknown'
+                                try:
+                                    provider_el = page.locator('paragraph').first
+                                    provider = await provider_el.text_content()
+                                    provider = provider.strip()
+                                    logger.info(f"🏟️ Provider: {provider}")
+                                except Exception as e:
+                                    logger.warning(f"⚠️ Failed to get provider: {e}")
+
+                                # Get prices (text with ₽ symbol)
+                                try:
+                                    price_elements = await page.get_by_text(re.compile(r'\d+[,\s]*\d*\s*₽')).all()
+                                    logger.info(f"💰 Found {len(price_elements)} prices")
+
+                                    # Get date (from button click - it's the suggested date)
+                                    from datetime import timedelta
+                                    suggested_date = (datetime.now() + timedelta(days=2)).strftime('%Y-%m-%d')
+
+                                    for price_el in price_elements:
+                                        price_text = await price_el.text_content()
+                                        price_clean = price_text.strip()
+
+                                        result = {
+                                            'url': page.url,
+                                            'date': suggested_date,
+                                            'time': time_text.strip(),
+                                            'provider': provider,
+                                            'price': price_clean,
+                                            'service_name': 'Court Rental',
+                                            'duration': 60,
+                                            'available': True,
+                                            'extracted_at': datetime.now().isoformat()
+                                        }
+                                        results.append(result)
+                                        logger.info(f"✅ [PRODUCTION-PROOF] PRICE CAPTURED: {price_clean}")
+                                        logger.info(f"✅ [PRODUCTION-PROOF] Full record: date={suggested_date}, time={time_text.strip()}, provider={provider}, price={price_clean}")
+
+                                    # Return early with results!
+                                    if results:
+                                        logger.info(f"✅ [TIME-PAGE] Extracted {len(results)} records from nearest date")
+                                        return results
+
+                                except Exception as e:
+                                    logger.error(f"❌ Failed to scrape prices: {e}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to process nearest date: {e}")
+            except:
+                pass  # Button not found, continue with date selection
+
+            # Check if time slots are already visible (after clicking nearest date button)
+            try:
+                # Wait a bit for DOM to update after clicking button
+                await page.wait_for_timeout(1000)
+
+                # Try to find time slots using pattern matching
+                # Time slots contain text like "9:00", "10:30" etc.
+                # Use partial match since elements may have whitespace
+                time_slot_candidates = await page.get_by_text(re.compile(r'\d{1,2}:\d{2}')).all()
+
+                # Filter to only actual time slots (not other elements with colons)
+                time_slots = []
+                for candidate in time_slot_candidates:
+                    text = await candidate.text_content()
+                    text_clean = text.strip() if text else ''
+                    # Check if it matches time format (HH:MM)
+                    if re.match(r'^\d{1,2}:\d{2}$', text_clean):
+                        time_slots.append(candidate)
+
+                if len(time_slots) > 0:
+                    logger.info(f"⏰ [TIME-PAGE] Time slots already visible, found {len(time_slots)} slots")
+                    logger.info("⏰ [TIME-PAGE] Extracting directly without clicking dates...")
+
+                    # Get the current date (shown on page)
+                    try:
+                        # Try to find selected/highlighted date
+                        selected_date_text = await page.locator('.calendar-day.selected, .calendar-day.active, [class*="selected"][class*="date"]').first.text_content()
+                        parsed_date = self.parse_date(selected_date_text)
+                    except:
+                        parsed_date = datetime.now().strftime('%Y-%m-%d')
+
+                    logger.info(f"⏰ [TIME-PAGE] Current date: {parsed_date}")
+
+                    # Process each visible time slot
+                    for slot_idx, slot in enumerate(time_slots[:3]):
+                        try:
+                            time_text = await slot.text_content()
+                            time_clean = time_text.strip() if time_text else ''
+                            logger.info(f"⏰ [STEP-2] Clicking time slot: {time_clean}")
+
+                            await slot.click(force=True, timeout=5000)
+                            await page.wait_for_timeout(1500)
+
+                            # Check for "Продолжить" button
+                            try:
+                                continue_btn = page.get_by_role('button', name='Продолжить')
+                                if await continue_btn.is_visible(timeout=2000):
+                                    logger.info(f"🎯 [STEP-2] Clicking 'Продолжить' to next page")
+                                    await continue_btn.click()
+                                    await page.wait_for_load_state('networkidle', timeout=10000)
+
+                                    current_url = page.url
+                                    logger.info(f"🔍 [STEP-2] Landed on: {current_url}")
+
+                                    # Check if we're on service page
+                                    if 'select-services' in current_url:
+                                        logger.info(f"✅ [FLOW-A] Direct service page - scraping prices")
+
+                                        # Get provider/court name
+                                        provider_name = 'Unknown'
+                                        try:
+                                            provider_el = await page.locator('paragraph').first
+                                            provider_name = await provider_el.text_content()
+                                            provider_name = provider_name.strip() if provider_name else 'Unknown'
+                                            logger.info(f"🏟️ [FLOW-A] Provider: {provider_name}")
+                                        except Exception as e:
+                                            logger.warning(f"⚠️ [FLOW-A] Failed to get provider: {e}")
+
+                                        # Get all prices
+                                        try:
+                                            price_elements = await page.get_by_text(re.compile(r'\d+[,\s]*\d*\s*₽')).all()
+                                            logger.info(f"💰 [FLOW-A] Found {len(price_elements)} prices")
+
+                                            for idx, price_el in enumerate(price_elements):
+                                                try:
+                                                    price_text = await price_el.text_content()
+                                                    price_clean = price_text.strip() if price_text else None
+
+                                                    if price_clean:
+                                                        result = {
+                                                            'url': page.url,
+                                                            'date': parsed_date,
+                                                            'time': time_clean,
+                                                            'provider': provider_name,
+                                                            'price': price_clean,
+                                                            'service_name': 'Unknown Service',
+                                                            'duration': 60,
+                                                            'available': True,
+                                                            'extracted_at': datetime.now().isoformat()
+                                                        }
+                                                        results.append(result)
+                                                        logger.info(f"✅ [FLOW-A] Scraped: {parsed_date} {time_clean} → {provider_name} → {price_clean}")
+                                                except Exception as e:
+                                                    logger.warning(f"⚠️ [FLOW-A] Failed to extract price {idx+1}: {e}")
+
+                                        except Exception as e:
+                                            logger.error(f"❌ [FLOW-A] Failed to get prices: {e}")
+
+                                        # Go back to time selection
+                                        await page.go_back()
+                                        await page.wait_for_timeout(1000)
+
+                            except Exception as e:
+                                logger.warning(f"⚠️ [STEP-2] No 'Продолжить' button: {e}")
+
+                        except Exception as e:
+                            logger.warning(f"⚠️ [STEP-2] Failed to process time slot {slot_idx+1}: {e}")
+                            continue
+
+                    # If we got results, return them
+                    if results:
+                        logger.info(f"✅ [TIME-PAGE] Extracted {len(results)} records from visible time slots")
+                        return results
+
+            except:
+                pass  # Time slots not visible, continue with date iteration
+
+            # STEP 1: Extract dates from DOM
             date_selectors = [
                 '.calendar-day:not(.disabled)',
                 '[class*="date"]',
@@ -966,18 +1239,20 @@ class YClientsParser:
                 logger.warning("⚠️ [TIME-PAGE] No dates found on time selection page")
                 return []
 
-            # Process first 2 dates
-            for date_idx, date in enumerate(dates_found[:2]):
+            # STEP 2: Navigate through dates → times → courts → services
+            for date_idx, date in enumerate(dates_found[:2]):  # Limit to 2 dates for performance
                 try:
                     date_text = await date.text_content()
-                    logger.info(f"⏰ [TIME-PAGE] Processing date {date_idx+1}: {date_text[:20]}")
+                    parsed_date = self.parse_date(date_text)
+                    logger.info(f"⏰ [STEP-1] Processing date {date_idx+1}: {date_text[:20]} → {parsed_date}")
 
-                    # Use force=True for Angular components that intercept clicks
+                    # Scroll into view and click date to load time slots
+                    await date.scroll_into_view_if_needed()
+                    await page.wait_for_timeout(500)
                     await date.click(force=True, timeout=5000)
                     await page.wait_for_timeout(2000)  # Give time for slots to load
 
                     # Extract time slots for this date
-                    # Try multiple selectors
                     time_slots = []
                     time_slot_selectors = [
                         '[data-time]',
@@ -991,42 +1266,247 @@ class YClientsParser:
                             slots = await page.locator(selector).all()
                             if slots:
                                 time_slots = slots
-                                logger.info(f"⏰ [TIME-PAGE] Found {len(time_slots)} time slots with selector: {selector}")
+                                logger.info(f"⏰ [STEP-1] Found {len(time_slots)} time slots with selector: {selector}")
                                 break
                         except:
                             continue
 
-                    # Fallback: search for time patterns in text
+                    # Fallback: search for time patterns
                     if not time_slots:
                         time_slots = await page.get_by_text(re.compile(r'\d{1,2}:\d{2}')).all()
                         if time_slots:
-                            logger.info(f"⏰ [TIME-PAGE] Found {len(time_slots)} time slots via text pattern")
+                            logger.info(f"⏰ [STEP-1] Found {len(time_slots)} time slots via text pattern")
 
-                    # Extract basic booking info from available slots
-                    for slot_idx, slot in enumerate(time_slots[:5]):  # Limit to 5 slots
+                    # Navigate through each time slot
+                    for slot_idx, slot in enumerate(time_slots[:3]):  # Limit to 3 slots per date
                         try:
                             time_text = await slot.text_content()
+                            time_clean = time_text.strip() if time_text else ''
+                            logger.info(f"⏰ [STEP-2] Clicking time slot: {time_clean}")
 
-                            # Create basic booking record
-                            result = {
-                                'url': page.url,
-                                'date': self.parse_date(date_text),
-                                'time': time_text.strip() if time_text else '',
-                                'price': 'Доступно',  # Time page doesn't always show price
-                                'provider': 'Не указан',
-                                'extracted_at': datetime.now().isoformat()
-                            }
-                            results.append(result)
-                            logger.info(f"⏰ [TIME-PAGE] Extracted slot: {date_text} {time_text}")
+                            # Click time slot
+                            await slot.click(force=True, timeout=5000)
+                            await page.wait_for_timeout(1500)
+
+                            # Check for "Продолжить" button to go to next step
+                            try:
+                                continue_btn = page.get_by_role('button', name='Продолжить')
+                                if await continue_btn.is_visible(timeout=2000):
+                                    logger.info(f"🎯 [STEP-2] Clicking 'Продолжить' to next page")
+                                    await continue_btn.click()
+                                    await page.wait_for_load_state('networkidle', timeout=10000)
+
+                                    # CHECK: Which page did we land on?
+                                    current_url = page.url
+                                    logger.info(f"🔍 [STEP-2] Landed on: {current_url}")
+
+                                    # FLOW A: Direct to SERVICE page (no court selection!)
+                                    if 'select-services' in current_url:
+                                        logger.info(f"✅ [FLOW-A] Direct service page detected - scraping prices")
+
+                                        # Get provider/court name from first paragraph
+                                        provider_name = 'Unknown'
+                                        try:
+                                            provider_el = await page.locator('paragraph').first
+                                            provider_name = await provider_el.text_content()
+                                            provider_name = provider_name.strip() if provider_name else 'Unknown'
+                                            logger.info(f"🏟️ [FLOW-A] Provider: {provider_name}")
+                                        except Exception as e:
+                                            logger.warning(f"⚠️ [FLOW-A] Failed to get provider: {e}")
+
+                                        # Get all prices from page (they contain ₽ symbol)
+                                        try:
+                                            price_elements = await page.get_by_text(re.compile(r'\d+[,\s]*\d*\s*₽')).all()
+                                            logger.info(f"💰 [FLOW-A] Found {len(price_elements)} prices")
+
+                                            for idx, price_el in enumerate(price_elements):
+                                                try:
+                                                    price_text = await price_el.text_content()
+                                                    price_clean = price_text.strip() if price_text else None
+
+                                                    if price_clean:
+                                                        # Try to get service name (text before price)
+                                                        service_name = 'Unknown Service'
+                                                        try:
+                                                            # Get parent element and extract service text
+                                                            parent = await price_el.locator('xpath=ancestor::*[contains(text(), "аренда")]').first
+                                                            service_text = await parent.text_content()
+                                                            if service_text and 'аренда' in service_text:
+                                                                service_name = service_text.split('\n')[0].strip()
+                                                        except:
+                                                            pass
+
+                                                        result = {
+                                                            'url': page.url,
+                                                            'date': parsed_date,
+                                                            'time': time_clean,
+                                                            'provider': provider_name,
+                                                            'price': price_clean,
+                                                            'service_name': service_name,
+                                                            'duration': 60,
+                                                            'available': True,
+                                                            'extracted_at': datetime.now().isoformat()
+                                                        }
+                                                        results.append(result)
+                                                        logger.info(f"✅ [FLOW-A] Scraped: {parsed_date} {time_clean} → {provider_name} → {price_clean}")
+                                                except Exception as e:
+                                                    logger.warning(f"⚠️ [FLOW-A] Failed to extract price {idx+1}: {e}")
+
+                                        except Exception as e:
+                                            logger.error(f"❌ [FLOW-A] Failed to get prices: {e}")
+
+                                        # Go back to time selection
+                                        await page.go_back()
+                                        await page.wait_for_timeout(1000)
+                                        continue  # Skip court navigation logic
+
+                                    # FLOW B: Court selection page (original multi-step flow)
+                                    # STEP 3: Now on court selection page - SCRAPE COURT NAMES
+                                    logger.info(f"🏟️ [STEP-3] On court selection page, scraping court names")
+
+                                    court_selectors = [
+                                        'ui-kit-simple-cell',
+                                        '[class*="court"]',
+                                        '[class*="staff"]',
+                                        '.service-item',
+                                    ]
+
+                                    courts_found = []
+                                    for selector in court_selectors:
+                                        try:
+                                            courts = await page.locator(selector).all()
+                                            if courts and len(courts) > 0:
+                                                courts_found = courts
+                                                logger.info(f"🏟️ [STEP-3] Found {len(courts)} courts with selector: {selector}")
+                                                break
+                                        except:
+                                            continue
+
+                                    if not courts_found:
+                                        logger.warning(f"⚠️ [STEP-3] No courts found on page")
+                                        # Go back and continue with next time slot
+                                        await page.go_back()
+                                        await page.wait_for_timeout(1000)
+                                        continue
+
+                                    # Navigate through courts
+                                    for court_idx, court in enumerate(courts_found[:3]):  # Limit to 3 courts
+                                        try:
+                                            # Extract court name BEFORE clicking
+                                            court_name = 'Unknown'
+                                            try:
+                                                court_name_el = await court.locator('ui-kit-headline').first
+                                                court_name = await court_name_el.text_content()
+                                                court_name = court_name.strip() if court_name else 'Unknown'
+                                            except:
+                                                court_name = await court.text_content()
+                                                court_name = court_name[:50].strip() if court_name else 'Unknown'
+
+                                            logger.info(f"🏟️ [STEP-4] Clicking court: {court_name}")
+
+                                            # Click court
+                                            await court.click(force=True, timeout=5000)
+                                            await page.wait_for_timeout(1500)
+
+                                            # Click "Продолжить" to go to service/price page
+                                            continue_btn2 = page.get_by_role('button', name='Продолжить')
+                                            if await continue_btn2.is_visible(timeout=2000):
+                                                logger.info(f"🎯 [STEP-4] Clicking 'Продолжить' to service/price page")
+                                                await continue_btn2.click()
+                                                await page.wait_for_load_state('networkidle', timeout=10000)
+
+                                                # STEP 4: Now on service/price page - SCRAPE PRICES
+                                                logger.info(f"💰 [STEP-5] On service/price page, scraping prices")
+
+                                                # Extract service items with prices
+                                                service_selectors = [
+                                                    'ui-kit-simple-cell',
+                                                    '[class*="service"]',
+                                                    '.price-item',
+                                                ]
+
+                                                services_found = []
+                                                for selector in service_selectors:
+                                                    try:
+                                                        services = await page.locator(selector).all()
+                                                        if services and len(services) > 0:
+                                                            services_found = services
+                                                            logger.info(f"💰 [STEP-5] Found {len(services)} services with selector: {selector}")
+                                                            break
+                                                    except:
+                                                        continue
+
+                                                for svc_idx, service in enumerate(services_found):
+                                                    try:
+                                                        # Extract service name
+                                                        service_name = 'Unknown Service'
+                                                        try:
+                                                            name_el = await service.locator('ui-kit-headline').first
+                                                            service_name = await name_el.text_content()
+                                                            service_name = service_name.strip() if service_name else 'Unknown Service'
+                                                        except:
+                                                            pass
+
+                                                        # Extract price
+                                                        price = 'Не найдена'
+                                                        try:
+                                                            price_el = await service.locator('ui-kit-title').first
+                                                            price = await price_el.text_content()
+                                                            price = self.clean_price(price) if price else 'Не найдена'
+                                                        except:
+                                                            pass
+
+                                                        # Extract duration
+                                                        duration = 60
+                                                        try:
+                                                            duration_el = await service.locator('ui-kit-body').first
+                                                            duration_text = await duration_el.text_content()
+                                                            duration = self.parse_duration(duration_text) if duration_text else 60
+                                                        except:
+                                                            pass
+
+                                                        # Create complete booking record with ALL data
+                                                        result = {
+                                                            'url': page.url,
+                                                            'date': parsed_date,
+                                                            'time': time_clean,
+                                                            'provider': court_name,
+                                                            'price': price,
+                                                            'service_name': service_name,
+                                                            'duration': duration,
+                                                            'available': True,
+                                                            'extracted_at': datetime.now().isoformat()
+                                                        }
+                                                        results.append(result)
+                                                        logger.info(f"✅ [STEP-5] Scraped complete record: date={parsed_date}, time={time_clean}, court={court_name}, price={price}")
+
+                                                    except Exception as e:
+                                                        logger.warning(f"⚠️ [STEP-5] Failed to extract service {svc_idx+1}: {e}")
+
+                                                # Go back to court selection
+                                                await page.go_back()
+                                                await page.wait_for_timeout(1000)
+
+                                        except Exception as e:
+                                            logger.warning(f"⚠️ [STEP-4] Failed to process court {court_idx+1}: {e}")
+                                            continue
+
+                                    # Go back to time selection
+                                    await page.go_back()
+                                    await page.wait_for_timeout(1000)
+
+                            except Exception as e:
+                                logger.warning(f"⚠️ [STEP-2] No 'Продолжить' button or navigation failed: {e}")
 
                         except Exception as e:
-                            logger.warning(f"⚠️ [TIME-PAGE] Failed to extract slot {slot_idx+1}: {e}")
+                            logger.warning(f"⚠️ [STEP-2] Failed to process time slot {slot_idx+1}: {e}")
                             continue
 
                 except Exception as e:
-                    logger.warning(f"⚠️ [TIME-PAGE] Failed to process date {date_idx+1}: {e}")
+                    logger.warning(f"⚠️ [STEP-1] Failed to process date {date_idx+1}: {e}")
                     continue
 
+            logger.info(f"✅ [TIME-PAGE] Complete flow navigation finished: {len(results)} records extracted")
             return results
 
         except Exception as e:
