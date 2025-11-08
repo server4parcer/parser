@@ -1050,10 +1050,10 @@ class YClientsParser:
                             if 'select-services' in page.url:
                                 logger.info("✅ [FLOW-A] On service page - scraping prices")
 
-                                # Get provider (paragraph element)
+                                # Get provider (court name from category title)
                                 provider = 'Unknown'
                                 try:
-                                    provider_el = page.locator('paragraph').first
+                                    provider_el = page.locator('p.label.category-title').first
                                     provider = await provider_el.text_content()
                                     provider = provider.strip()
                                     logger.info(f"🏟️ Provider: {provider}")
