@@ -1050,15 +1050,29 @@ class YClientsParser:
                             if 'select-services' in page.url:
                                 logger.info("✅ [FLOW-A] On service page - scraping prices")
 
-                                # Get provider (court name from category title)
+                                # Get provider (court name) - try multiple page structures
                                 provider = 'Unknown'
-                                try:
-                                    provider_el = page.locator('p.label.category-title').first
-                                    provider = await provider_el.text_content()
-                                    provider = provider.strip()
-                                    logger.info(f"🏟️ Provider: {provider}")
-                                except Exception as e:
-                                    logger.warning(f"⚠️ Failed to get provider: {e}")
+                                provider_selectors = [
+                                    'p.label.category-title',      # Structure A (b861100 - Padel Friends)
+                                    'div.header_title',             # Structure B (b1009933 - TK Raketion)
+                                    'div.title-block__title',       # Structure C (alternative)
+                                    'h1.category-title',            # Structure D (fallback)
+                                    '.service-category-title',      # Structure E (fallback)
+                                ]
+
+                                for selector in provider_selectors:
+                                    try:
+                                        provider_el = page.locator(selector).first
+                                        provider_text = await provider_el.text_content(timeout=2000)
+                                        if provider_text and provider_text.strip():
+                                            provider = provider_text.strip()
+                                            logger.info(f"🏟️ Provider found with selector '{selector}': {provider}")
+                                            break
+                                    except Exception:
+                                        continue
+
+                                if provider == 'Unknown':
+                                    logger.warning(f"⚠️ Failed to get provider: No matching selector found")
 
                                 # Get prices (text with ₽ symbol)
                                 try:
