@@ -1053,7 +1053,8 @@ class YClientsParser:
                                 # Get provider (court name) - try multiple page structures
                                 provider = 'Unknown'
                                 provider_selectors = [
-                                    'p.label.category-title',      # Structure A (b861100 - Padel Friends)
+                                    'paragraph',                     # Structure A (b861100 - Angular paragraph element)
+                                    'p.label.category-title',       # Structure A alternative
                                     'div.header_title',             # Structure B (b1009933 - TK Raketion)
                                     'div.title-block__title',       # Structure C (alternative)
                                     'h1.category-title',            # Structure D (fallback)
