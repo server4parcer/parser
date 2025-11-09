@@ -1,0 +1,2 @@
+id,url_id,url,date,time,price,provider,seat_number,location_name,court_type,time_category,duration,review_count,prepayment_required,created_at,updated_at,extracted_at
+36293,1,,2025-11-10,09:00:00,1 200 ₽,Корт 3 (для игры 1х1),3,,,MORNING,60,,False,2025-11-08T14:52:53.533266,2025-11-08T14:52:53.578808,2025-11-08T14:52:53.578808

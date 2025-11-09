@@ -1,0 +1,2 @@
+id,url_id,url,date,time,price,provider,seat_number,location_name,court_type,time_category,duration,review_count,prepayment_required,created_at,updated_at,extracted_at
+36260,1,,2025-11-10,09:00:00,1 200 ₽,Unknown,,,,MORNING,60,,False,2025-11-08T17:03:58.80196,2025-11-08T09:03:59.049195,2025-11-08T09:03:59.049195

@@ -1,0 +1,166 @@
+================================================================================
+HANDOFF SUMMARY - Provider Field Fix
+================================================================================
+Date: 2025-11-08
+Status: READY FOR NEXT AGENT TO TEST LOCALLY
+
+================================================================================
+WHAT WAS DONE
+================================================================================
+
+1. ✅ Identified CSV issue: provider="Unknown" (17/23 records)
+2. ✅ Used Playwright MCP to inspect live service page
+3. ✅ Found correct selector: p.label.category-title
+4. ✅ Fixed code in src/parser/yclients_parser.py:1056
+5. ✅ Committed to GitHub (commit 562b305)
+6. ✅ Created comprehensive test + verification scripts
+7. ✅ Created complete documentation for next agent
+
+================================================================================
+ENTRY POINT FOR NEXT AGENT
+================================================================================
+
+START HERE:
+/Users/m/git/clients/yclents/yclients-local-fix/START_HERE_NEXT_AGENT.md
+
+This file contains:
+- Full context of what was done
+- Exact paths to all files (absolute paths, not relative)
+- 4-phase execution plan
+- When/how to use Playwright MCP
+- Acceptance criteria checklist
+- Decision tree for debugging
+
+================================================================================
+QUICK VERIFICATION (3 Commands)
+================================================================================
+
+cd /Users/m/git/clients/yclents/yclients-local-fix
+
+1. ./clear_supabase.sh               # Clear old "Unknown" data
+2. venv/bin/python3 test_provider_fix.py    # Run test (saves to Supabase)
+3. ./check_supabase_data.sh          # Verify CSV shows "Корт..."
+
+================================================================================
+KEY FILES CREATED
+================================================================================
+
+Documentation:
+- START_HERE_NEXT_AGENT.md          (Entry point - READ THIS FIRST)
+- COMPLETE_PLAN_FOR_NEXT_AGENT.md   (Full 4-phase execution plan)
+- ACCEPTANCE_TEST.md                 (Test procedure + checklist)
+- HANDOFF_SUMMARY.txt               (This file)
+
+Scripts:
+- test_provider_fix.py              (Automated local test)
+- clear_supabase.sh                 (Clear Supabase table)
+- check_supabase_data.sh            (Already existed - verify results)
+
+Code:
+- src/parser/yclients_parser.py     (Line 1056: FIXED selector)
+
+Reference:
+- supabase_export_20251108_221134.csv  (Baseline BAD data)
+- Screenshots in .playwright-mcp/   (Service page with provider visible)
+
+================================================================================
+THE FIX
+================================================================================
+
+File: src/parser/yclients_parser.py
+Line: 1056
+
+BEFORE (broken):
+    provider_el = page.locator('paragraph').first
+
+AFTER (fixed):
+    provider_el = page.locator('p.label.category-title').first
+
+Why: The actual HTML element is <p class="label category-title">
+
+================================================================================
+EXPECTED RESULTS
+================================================================================
+
+BEFORE FIX (current CSV):
+id,date,time,price,provider
+36284,2025-11-10,09:00:00,1 200 ₽,Unknown  ← BAD
+
+AFTER FIX (expected):
+id,date,time,price,provider
+36285,2025-11-10,09:00:00,1 200 ₽,Корт 3 (для игры 1х1)  ← GOOD
+
+================================================================================
+ACCEPTANCE CRITERIA
+================================================================================
+
+DO NOT DEPLOY until ALL pass:
+✓ test_provider_fix.py shows "✅ TEST PASSED!"
+✓ Provider field contains "Корт" text (NOT "Unknown")  
+✓ check_supabase_data.sh shows correct data
+✓ CSV export has provider column populated
+✓ Price + date + time also populated correctly
+
+================================================================================
+DEPLOYMENT PROCESS
+================================================================================
+
+ONLY after CSV is correct:
+
+git add src/parser/yclients_parser.py
+git commit -m "Fix: Capture court names in provider field"
+git push origin main
+
+TimeWeb will auto-deploy in ~20 minutes.
+Wait 30 minutes total for cron cycle.
+Then check production data.
+
+================================================================================
+IF TEST FAILS
+================================================================================
+
+If provider still shows "Unknown":
+
+1. Use Playwright MCP to inspect live page
+2. Navigate to service page manually  
+3. Take screenshot
+4. Find correct selector with evaluate()
+5. Update line 1056 with new selector
+6. Re-run test
+
+Full instructions in COMPLETE_PLAN_FOR_NEXT_AGENT.md
+
+================================================================================
+SUCCESS CRITERIA
+================================================================================
+
+ONE THING MATTERS: CSV must show provider="Корт..." NOT "Unknown"
+
+When CSV is correct → Deploy
+When CSV is wrong → Debug with Playwright MCP → Fix → Retry
+
+================================================================================
+GIT STATUS
+================================================================================
+
+Branch: main
+Last commit: 562b305
+Files changed: src/parser/yclients_parser.py (1 line change)
+Status: COMMITTED but NOT TESTED LOCALLY yet
+
+Next agent must:
+1. Test locally
+2. Verify CSV
+3. Deploy if correct
+
+================================================================================
+CONTEXT USAGE
+================================================================================
+
+Estimated: ~42% of context used
+Remaining: Safe margin for next agent to work
+This session: Heavy Playwright MCP usage + documentation creation
+
+================================================================================
+END OF HANDOFF
+================================================================================

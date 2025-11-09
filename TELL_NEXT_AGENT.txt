@@ -1,0 +1,67 @@
+================================================================================
+CRITICAL MESSAGE FOR NEXT AGENT
+================================================================================
+
+READ THIS FILE FIRST:
+/Users/m/git/clients/yclents/yclients-local-fix/NEXT_AGENT_COMPLETE_HANDOFF.md
+
+================================================================================
+QUICK SUMMARY
+================================================================================
+
+WHAT PREVIOUS AGENT DID:
+✅ Fixed provider field for ONE URL (b861100)
+❌ Didn't realize different venues have DIFFERENT HTML structures
+❌ Didn't test other URLs
+
+WHAT I DISCOVERED:
+🔍 Used Playwright MCP to inspect ALL URLs manually
+🔍 Found b1009933 HAS DATA but uses DIFFERENT HTML structure
+🔍 Found 2 URLs have booking disabled (remove from production)
+
+WHAT I FIXED:
+✅ Implemented multi-selector fallback (tries 5 selectors)
+✅ Code now handles multiple page structures
+⏸️ NOT TESTED YET - YOU NEED TO TEST IT
+
+YOUR MISSION:
+1. Test the multi-selector fix on b861100 AND b1009933
+2. Verify CSV shows providers from BOTH URLs
+3. If tests pass → commit and deploy
+4. If tests fail → use Playwright MCP to debug
+
+================================================================================
+QUICK TEST (3 COMMANDS)
+================================================================================
+
+cd /Users/m/git/clients/yclents/yclients-local-fix
+
+./clear_supabase.sh
+
+# Test both URLs (see handoff doc for full test scripts)
+# Then check CSV:
+./check_supabase_data.sh
+
+EXPECTED: Provider != "Unknown" for BOTH b861100 AND b1009933
+
+================================================================================
+KEY FILES
+================================================================================
+
+1. NEXT_AGENT_COMPLETE_HANDOFF.md  ← READ THIS (full instructions)
+2. src/parser/yclients_parser.py   ← Multi-selector fix (lines 1053-1075)
+3. CRITICAL_FINDINGS_MULTIPLE_STRUCTURES.md  ← Why fix was needed
+
+================================================================================
+CRITICAL
+================================================================================
+
+⚠️ DON'T deploy until you test BOTH URLs locally
+⚠️ DON'T assume one test = all work
+⚠️ Multi-selector fix is NOT TESTED yet
+
+✅ Test locally first
+✅ Verify CSV shows providers from multiple URLs
+✅ Then deploy
+
+================================================================================

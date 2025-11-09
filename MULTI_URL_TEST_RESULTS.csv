@@ -1,0 +1,2 @@
+date,time,price,provider,seat_number,duration,url,service_name,available,extracted_at
+2025-11-02,22:30,,,,1800,correlated-api,,False,2025-11-02T20:20:30.917687

@@ -1928,9 +1928,21 @@ class YClientsParser:
                     logger.info("🌐 [STRATEGY] Attempting API-based extraction first...")
                     all_data = await self.extract_via_api_interception(self.page, url)
 
-                    # If API mode got data, use it
+                    # Check data QUALITY, not just quantity
                     if all_data and len(all_data) > 0:
-                        logger.info(f"✅ [STRATEGY] API mode succeeded: {len(all_data)} records")
+                        # Count records with real provider names (not "Не указан" or "Unknown")
+                        bad_provider_values = ['Не указан', 'Unknown', '', None]
+                        good_records = [r for r in all_data if r.get('provider') not in bad_provider_values]
+                        quality_pct = (len(good_records) / len(all_data) * 100) if all_data else 0
+
+                        logger.info(f"🌐 [STRATEGY] API mode returned {len(all_data)} records, {len(good_records)} with real providers ({quality_pct:.1f}% quality)")
+
+                        # If data quality is poor (less than 50% have real providers), fall back to DOM
+                        if quality_pct < 50:
+                            logger.warning(f"⚠️ [STRATEGY] API data quality too low ({quality_pct:.1f}%), falling back to DOM scraping")
+                            all_data = await self.detect_and_handle_page_type(self.page, url, current_url)
+                        else:
+                            logger.info(f"✅ [STRATEGY] API mode succeeded with good quality: {len(good_records)} good records")
                     else:
                         # Fallback to DOM scraping
                         logger.info("⚠️ [STRATEGY] API mode returned 0 records, falling back to DOM scraping")

@@ -214,9 +214,9 @@ python scripts/update_db_schema.py # Update schema for business analytics
 2. Verify health check endpoint responds
 3. Check container logs for initialization errors
 4. Ensure port 8000 is properly exposed
-## Production Supabase Credentials (CURRENT - Updated 2025-10-13)
-- **Supabase URL**: `https://tfvgbcqjftirclxwqwnr.supabase.co`
-- **Supabase Service Role Key**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRmdmdiY3FqZnRpcmNseHdxd25yIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Mjc3Nzk2NywiZXhwIjoyMDY4MzUzOTY3fQ.4szXEDqL7KhQlM3RX89DwiFpIO8LxKRek8-CkTM1-aE`
+## Production Supabase Credentials (CURRENT - Updated 2025-11-02)
+- **Supabase URL**: `https://zojouvfuvdgniqbmbegs.supabase.co`
+- **Supabase Service Role Key**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpvam91dmZ1dmRnbmlxYm1iZWdzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDMyNDgzMCwiZXhwIjoyMDc1OTAwODMwfQ.D9tQNYmStQ9EddTnxQL-N1hmmCs9CTIJgRp6qhmSJCc`
 - **Production API**: `https://server4parcer-parser-4949.twc1.net`
 - **API Key**: `yclients_parser_secure_key_2024`
 - **GitHub Repo**: `https://github.com/server4parcer/parser.git`

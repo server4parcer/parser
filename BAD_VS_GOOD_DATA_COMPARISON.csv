@@ -1,0 +1,11 @@
+# ❌ BAD DATA (Old Code) vs ✅ GOOD DATA (New Code)
+
+"Status","date","time","price","provider","seat_number","Business Value"
+"❌ BAD","2025-10-14","(empty)","Цена не найдена","Не указан","(empty)","NO - Cannot book without time/price"
+"❌ BAD","2025-10-15","(empty)","Цена не найдена","Не указан","(empty)","NO - Fake fallback values"
+"❌ BAD","2025-10-16","(empty)","Цена не найдена","Не указан","(empty)","NO - Missing critical data"
+"","","","","","",""
+"✅ GOOD","2025-11-04","14:00:00","2800₽","Корт А33","А33","YES - Complete booking info!"
+"✅ GOOD","2025-11-04","15:00:00","2800₽","Корт А33","А33","YES - Different time = different slot"
+"✅ GOOD","2025-11-04","16:00:00","3200₽","Корт B12","B12","YES - Different court"
+"✅ GOOD","2025-11-05","14:00:00","2800₽","Корт А33","А33","YES - Different date"
